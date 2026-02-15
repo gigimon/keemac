@@ -10,6 +10,7 @@ public final class AppViewModel {
         static let vaultBookmark = "keemac.selection.vault.bookmark"
         static let keyFileBookmark = "keemac.selection.keyfile.bookmark"
         static let biometricVaultPath = "keemac.selection.biometric.vault.path"
+        static let recentVaults = "keemac.selection.recent.v1"
     }
 
     public enum LockReason: String, Sendable {
@@ -37,10 +38,29 @@ public final class AppViewModel {
         case failed(String)
     }
 
+    public struct RecentVault: Identifiable, Equatable {
+        public let vaultURL: URL
+        public let keyFileURL: URL?
+
+        public var id: String {
+            vaultURL.standardizedFileURL.path
+        }
+
+        public var title: String {
+            vaultURL.lastPathComponent
+        }
+    }
+
+    private struct PersistedRecentVault: Codable {
+        let vaultBookmark: Data
+        let keyFileBookmark: Data?
+    }
+
     public var selectedVaultURL: URL?
     public var selectedKeyFileURL: URL?
     public var loadState: LoadState = .idle
     public private(set) var showBiometricUnlockScreen: Bool = false
+    public private(set) var recentVaults: [RecentVault] = []
     public var clipboardAutoClearTimeoutSeconds: TimeInterval {
         get { settingsStore.clipboardAutoClearTimeoutSeconds }
         set { settingsStore.clipboardAutoClearTimeoutSeconds = newValue }
@@ -52,6 +72,10 @@ public final class AppViewModel {
 
     public var idleLockTimeoutForSelectedVault: TimeInterval {
         settingsStore.idleLockTimeoutSeconds(for: selectedVaultURL)
+    }
+
+    public var showDockIcon: Bool {
+        settingsStore.showDockIcon
     }
 
     private let vaultLoader: any VaultLoading
@@ -74,6 +98,7 @@ public final class AppViewModel {
         self.settingsStore = settingsStore
         self.userDefaults = userDefaults
         restorePersistedSelections()
+        restoreRecentVaults()
         refreshBiometricUnlockAvailability()
     }
 
@@ -98,6 +123,21 @@ public final class AppViewModel {
         } else {
             userDefaults.removeObject(forKey: PersistedSelectionKey.keyFileBookmark)
         }
+        loadState = .idle
+    }
+
+    public func selectRecentVault(_ recentVault: RecentVault) {
+        selectedVaultURL = recentVault.vaultURL
+        selectedKeyFileURL = recentVault.keyFileURL
+
+        persistSelection(recentVault.vaultURL, key: PersistedSelectionKey.vaultBookmark)
+        if let keyFileURL = recentVault.keyFileURL {
+            persistSelection(keyFileURL, key: PersistedSelectionKey.keyFileBookmark)
+        } else {
+            userDefaults.removeObject(forKey: PersistedSelectionKey.keyFileBookmark)
+        }
+
+        refreshBiometricUnlockAvailability()
         loadState = .idle
     }
 
@@ -130,6 +170,7 @@ public final class AppViewModel {
                 clearBiometricCredentialMarker(for: selectedVaultURL)
             }
 
+            recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: selectedKeyFileURL)
             refreshBiometricUnlockAvailability()
             loadState = .loaded(loadedVault)
             registerUserActivity()
@@ -157,6 +198,7 @@ public final class AppViewModel {
                 masterPassword: password,
                 keyFileURL: selectedKeyFileURL
             )
+            recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: selectedKeyFileURL)
             refreshBiometricUnlockAvailability()
             loadState = .loaded(loadedVault)
             registerUserActivity()
@@ -204,6 +246,15 @@ public final class AppViewModel {
         if case .loaded = loadState {
             registerUserActivity()
         }
+    }
+
+    public func setShowDockIcon(_ isVisible: Bool) {
+        settingsStore.showDockIcon = isVisible
+        NotificationCenter.default.post(
+            name: AppCommand.dockIconVisibilityChanged,
+            object: nil,
+            userInfo: [AppCommand.dockIconVisibilityUserInfoKey: isVisible]
+        )
     }
 
     public func registerUserActivity() {
@@ -350,6 +401,46 @@ public final class AppViewModel {
         selectedKeyFileURL = restoreSelection(for: PersistedSelectionKey.keyFileBookmark)
     }
 
+    private func restoreRecentVaults() {
+        guard let data = userDefaults.data(forKey: PersistedSelectionKey.recentVaults) else {
+            recentVaults = []
+            return
+        }
+
+        let decoder = JSONDecoder()
+        guard let persistedRecentVaults = try? decoder.decode([PersistedRecentVault].self, from: data) else {
+            userDefaults.removeObject(forKey: PersistedSelectionKey.recentVaults)
+            recentVaults = []
+            return
+        }
+
+        var restored: [RecentVault] = []
+        var seenVaultPaths = Set<String>()
+        for persisted in persistedRecentVaults {
+            guard let vaultURL = restoreURL(fromBookmarkData: persisted.vaultBookmark) else {
+                continue
+            }
+
+            let identity = vaultIdentity(for: vaultURL)
+            guard !seenVaultPaths.contains(identity) else {
+                continue
+            }
+
+            let keyFileURL = persisted.keyFileBookmark.flatMap { bookmarkData in
+                restoreURL(fromBookmarkData: bookmarkData)
+            }
+            restored.append(RecentVault(vaultURL: vaultURL, keyFileURL: keyFileURL))
+            seenVaultPaths.insert(identity)
+
+            if restored.count == 3 {
+                break
+            }
+        }
+
+        recentVaults = restored
+        persistRecentVaults()
+    }
+
     private func refreshBiometricUnlockAvailability() {
         guard let selectedVaultURL else {
             showBiometricUnlockScreen = false
@@ -405,6 +496,75 @@ public final class AppViewModel {
             SecureLogger.logUnlockFailure(error)
             return nil
         }
+    }
+
+    private func bookmarkData(for url: URL) -> Data? {
+        do {
+            return try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        } catch {
+            SecureLogger.logUnlockFailure(error)
+            return nil
+        }
+    }
+
+    private func restoreURL(fromBookmarkData bookmarkData: Data) -> URL? {
+        var isStale = false
+        guard let resolvedURL = try? URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) else {
+            return nil
+        }
+
+        guard FileManager.default.fileExists(atPath: resolvedURL.path) else {
+            return nil
+        }
+
+        return resolvedURL
+    }
+
+    private func recordRecentVaultUsage(vaultURL: URL, keyFileURL: URL?) {
+        let identity = vaultIdentity(for: vaultURL)
+        recentVaults.removeAll { vaultIdentity(for: $0.vaultURL) == identity }
+        recentVaults.insert(RecentVault(vaultURL: vaultURL, keyFileURL: keyFileURL), at: 0)
+        if recentVaults.count > 3 {
+            recentVaults = Array(recentVaults.prefix(3))
+        }
+        persistRecentVaults()
+    }
+
+    private func persistRecentVaults() {
+        guard !recentVaults.isEmpty else {
+            userDefaults.removeObject(forKey: PersistedSelectionKey.recentVaults)
+            return
+        }
+
+        let persistedVaults: [PersistedRecentVault] = recentVaults.prefix(3).compactMap { recentVault in
+            guard let vaultBookmark = bookmarkData(for: recentVault.vaultURL) else {
+                return nil
+            }
+            let keyFileBookmark = recentVault.keyFileURL.flatMap { keyFileURL in
+                bookmarkData(for: keyFileURL)
+            }
+            return PersistedRecentVault(vaultBookmark: vaultBookmark, keyFileBookmark: keyFileBookmark)
+        }
+
+        if persistedVaults.isEmpty {
+            userDefaults.removeObject(forKey: PersistedSelectionKey.recentVaults)
+            recentVaults = []
+            return
+        }
+
+        guard let encoded = try? JSONEncoder().encode(persistedVaults) else {
+            return
+        }
+        userDefaults.set(encoded, forKey: PersistedSelectionKey.recentVaults)
     }
 
     private func markBiometricCredentialAvailable(for vaultURL: URL) {

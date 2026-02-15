@@ -2,15 +2,38 @@ import AppKit
 import SwiftUI
 import UI
 
+@MainActor
 final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
+    private var dockIconVisibilityObserver: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        Self.applyActivationPolicy(showDockIcon: AppSettingsStore.shared.showDockIcon)
 
         if let icon = loadAppIcon() {
             NSApp.applicationIconImage = icon
         }
 
+        dockIconVisibilityObserver = NotificationCenter.default.addObserver(
+            forName: AppCommand.dockIconVisibilityChanged,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let showDockIcon = notification.userInfo?[AppCommand.dockIconVisibilityUserInfoKey] as? Bool else {
+                return
+            }
+            Task { @MainActor in
+                Self.applyActivationPolicy(showDockIcon: showDockIcon)
+            }
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let dockIconVisibilityObserver {
+            NotificationCenter.default.removeObserver(dockIconVisibilityObserver)
+            self.dockIconVisibilityObserver = nil
+        }
     }
 
     private func loadAppIcon() -> NSImage? {
@@ -26,6 +49,13 @@ final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
 
         return nil
     }
+
+    private static func applyActivationPolicy(showDockIcon: Bool) {
+        let policy: NSApplication.ActivationPolicy = showDockIcon ? .regular : .accessory
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+        }
+    }
 }
 
 @main
@@ -34,10 +64,17 @@ struct KeeMacApp: App {
     @State private var viewModel = AppViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("KeeMac", id: "main") {
             RootView(viewModel: viewModel)
         }
         .windowResizability(.contentSize)
+
+        MenuBarExtra {
+            KeeMacMenuBarView(viewModel: viewModel)
+        } label: {
+            Image(systemName: menuBarSymbolName)
+        }
+
         Settings {
             SettingsView(viewModel: viewModel)
         }
@@ -67,6 +104,13 @@ struct KeeMacApp: App {
                 .keyboardShortcut("l", modifiers: [.command])
             }
         }
+    }
+
+    private var menuBarSymbolName: String {
+        if case .loaded = viewModel.loadState {
+            return "lock.open.fill"
+        }
+        return "lock.fill"
     }
 
     private func postCommand(_ command: Notification.Name) {

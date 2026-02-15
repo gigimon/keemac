@@ -3,6 +3,24 @@ import Data
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct WindowAccessorView: NSViewRepresentable {
+    let onWindowChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            onWindowChange(view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onWindowChange(nsView.window)
+        }
+    }
+}
+
 public struct RootView: View {
     @Bindable private var viewModel: AppViewModel
     @State private var masterPassword: String = ""
@@ -90,13 +108,23 @@ public struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.lockVault)) { _ in
             viewModel.lockVault(reason: .userInitiated)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = notification.object as? NSWindow else {
+                return
+            }
+            guard MainWindowStore.shared.isMainWindow(window) else {
+                return
+            }
+            viewModel.lockVault(reason: .userInitiated)
+            MainWindowStore.shared.clearIfMainWindow(window)
+        }
         .onChange(of: viewModel.loadState) { _, newState in
             switch newState {
             case .idle:
                 preferBiometricOnlyUnlock = false
                 isMasterPasswordFocused = true
             case .locked:
-                preferBiometricOnlyUnlock = true
+                preferBiometricOnlyUnlock = viewModel.showDockIcon
                 isMasterPasswordFocused = true
             case .failed:
                 isMasterPasswordFocused = true
@@ -106,6 +134,16 @@ public struct RootView: View {
                 break
             }
         }
+        .onChange(of: viewModel.showDockIcon) { _, showDockIcon in
+            if !showDockIcon {
+                preferBiometricOnlyUnlock = false
+            }
+        }
+        .background(
+            WindowAccessorView { window in
+                MainWindowStore.shared.register(window: window)
+            }
+        )
         .frame(
             minWidth: minimumWindowWidth,
             idealWidth: idealWindowWidth,
@@ -118,6 +156,9 @@ public struct RootView: View {
     private func unlockView(statusMessage: String? = nil, isError: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             header
+            if !viewModel.recentVaults.isEmpty {
+                recentVaultsSection
+            }
             controlsSection
             if let statusMessage, !statusMessage.isEmpty {
                 statusBanner(statusMessage: statusMessage, isError: isError)
@@ -263,6 +304,27 @@ public struct RootView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(.separator.opacity(0.2))
         )
+    }
+
+    private var recentVaultsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recent Vaults")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                ForEach(viewModel.recentVaults) { recentVault in
+                    Button(recentVault.title) {
+                        selectRecentVault(recentVault)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .lineLimit(1)
+                    .help(recentVault.vaultURL.path(percentEncoded: false))
+                    .hoverHighlight()
+                }
+            }
+        }
     }
 
     private func fileChooserRow(
@@ -436,6 +498,11 @@ public struct RootView: View {
             masterPassword = ""
             await viewModel.unlock(masterPassword: password)
         }
+    }
+
+    private func selectRecentVault(_ recentVault: AppViewModel.RecentVault) {
+        viewModel.selectRecentVault(recentVault)
+        isMasterPasswordFocused = true
     }
 
     private func startActivityMonitor() {

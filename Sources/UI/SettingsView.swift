@@ -49,6 +49,16 @@ public struct SettingsView: View {
                     .disabled(viewModel.selectedVaultURL == nil)
                 }
 
+                Section("Appearance") {
+                    Toggle(
+                        "Show Dock icon",
+                        isOn: Binding(
+                            get: { viewModel.showDockIcon },
+                            set: { viewModel.setShowDockIcon($0) }
+                        )
+                    )
+                }
+
                 Section("Clipboard") {
                     Picker(
                         "Auto-clear copied secrets",

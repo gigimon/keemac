@@ -8,6 +8,7 @@ public final class AppSettingsStore {
         static let clipboardTimeoutSeconds = "keemac.settings.clipboard.timeout.seconds"
         static let defaultIdleLockTimeoutSeconds = "keemac.settings.vault.idlelock.default.seconds"
         static let perVaultSettingsData = "keemac.settings.vault.pervault.data"
+        static let showDockIcon = "keemac.settings.appearance.showDockIcon"
     }
 
     private struct VaultSettings: Codable {
@@ -39,6 +40,12 @@ public final class AppSettingsStore {
         }
     }
 
+    public var showDockIcon: Bool {
+        didSet {
+            userDefaults.set(showDockIcon, forKey: Key.showDockIcon)
+        }
+    }
+
     private var perVaultSettings: [String: VaultSettings] {
         didSet {
             persistPerVaultSettings()
@@ -55,6 +62,12 @@ public final class AppSettingsStore {
 
         let rawDefaultIdleLockTimeout = userDefaults.object(forKey: Key.defaultIdleLockTimeoutSeconds) as? TimeInterval ?? 300
         defaultIdleLockTimeoutSeconds = Self.normalizeTimeout(rawDefaultIdleLockTimeout)
+
+        if let persistedShowDockIcon = userDefaults.object(forKey: Key.showDockIcon) as? Bool {
+            showDockIcon = persistedShowDockIcon
+        } else {
+            showDockIcon = true
+        }
 
         if let data = userDefaults.data(forKey: Key.perVaultSettingsData),
            let decoded = try? JSONDecoder().decode([String: VaultSettings].self, from: data) {
