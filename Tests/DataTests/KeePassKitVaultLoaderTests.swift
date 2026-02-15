@@ -124,6 +124,7 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
             password: "created-pass",
             url: "https://example.com",
             notes: "created-notes",
+            iconID: 9,
             customFields: [
                 VaultCustomFieldForm(key: "env", value: "prod", isProtected: false)
             ],
@@ -153,6 +154,7 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
         XCTAssertEqual(entry.password, "created-pass")
         XCTAssertEqual(entry.url?.absoluteString, "https://example.com")
         XCTAssertEqual(entry.notes, "created-notes")
+        XCTAssertEqual(entry.iconID, 9)
         XCTAssertEqual(entry.customFields.count, 1)
         XCTAssertEqual(entry.customFields.first?.key, "env")
         XCTAssertEqual(entry.customFields.first?.value, "prod")
@@ -189,6 +191,7 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
             password: "updated-pass",
             url: "https://updated.local",
             notes: "updated-notes",
+            iconID: 58,
             customFields: [
                 VaultCustomFieldForm(key: "tier", value: "gold", isProtected: false),
                 VaultCustomFieldForm(key: "token", value: "secret", isProtected: true)
@@ -219,6 +222,7 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
         XCTAssertEqual(entry.password, "updated-pass")
         XCTAssertEqual(entry.url?.absoluteString, "https://updated.local")
         XCTAssertEqual(entry.notes, "updated-notes")
+        XCTAssertEqual(entry.iconID, 58)
         XCTAssertEqual(entry.customFields.count, 2)
         XCTAssertTrue(entry.customFields.contains(where: { $0.key == "tier" && $0.value == "gold" && !$0.isProtected }))
         XCTAssertTrue(entry.customFields.contains(where: { $0.key == "token" && $0.value == "secret" && $0.isProtected }))

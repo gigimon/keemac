@@ -298,6 +298,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         entry.password = form.password
         entry.url = form.url
         entry.notes = form.notes
+        entry.iconId = form.iconID ?? Int(KPKEntry.defaultIcon())
 
         try applyCustomFields(form.customFields, to: entry)
         try applyOTP(form.otp, to: entry, title: normalizedTitle)

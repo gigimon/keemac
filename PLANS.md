@@ -94,7 +94,64 @@ Non-goals for MVP:
 [] Unit tests for backup creation and save failure rollback behavior
 [] UI smoke tests for create/edit/delete entry flows
 
-# Next planning decisions (after editable entries)
+## Step 8: Settings system (global + per-vault)
+[] Introduce persistent settings layer:
+[] Create `AppSettingsStore` over `UserDefaults` with typed models and defaults
+[] Split settings into global and per-vault (`vaultIdentity`-scoped)
+[] Add migration path for existing timeout/biometric values
+[] Add app settings window/scene (native macOS style):
+[] Section `Security`: Touch ID toggle per selected vault
+[] Section `Security`: auto-lock timeout per selected vault
+[] Section `Clipboard`: auto-clear timeout after copy
+[] Section `Advanced`: clear clipboard on lock and on app quit
+[] Wire runtime behavior to settings:
+[] Read per-vault timeout when vault becomes active
+[] Respect per-vault Touch ID enable/disable gate before biometric unlock screen
+[] Apply clipboard timeout globally in `SensitiveClipboard`
+[] Add tests:
+[] Unit tests for settings persistence/readback and defaults
+[] Unit tests for per-vault override resolution
+
+## Step 9: Menu bar mode and quick actions
+[] Introduce menu bar item (`NSStatusItem` or `MenuBarExtra`) with actions:
+[] Open/unlock last selected vault
+[] Lock vault
+[] Open main window
+[] Quick password generator + copy to clipboard
+[] Add app presentation mode setting:
+[] `Dock + Menu Bar` (default)
+[] `Menu Bar only` (hide Dock icon)
+[] Expose mode switch only in Settings (no first-launch chooser)
+[] Apply activation policy from settings at launch (`regular` vs `accessory`)
+[] Handle unlock from menu bar:
+[] If Touch ID enabled and credential exists, trigger biometric unlock directly
+[] If unavailable/fails, open unlock window fallback
+[] Add UX/status signals:
+[] Show locked/unlocked state in menu bar icon/title
+[] Show short confirmation when password generated and copied
+[] Validate edge cases:
+[] Vault file moved/deleted
+[] Key file required but unavailable
+[] Keychain credential missing/invalidated
+
+## Step 10: UI/UX refinement pass
+[] Improve vault browsing speed and ergonomics:
+[] Better empty states and inline hints (contextual, minimal)
+[] Keyboard-first actions (new/edit/delete, copy username/password/otp, focus search)
+[] Add compact toast system for copy/save/lock feedback
+[] Improve visual hierarchy:
+[] Consistent spacing/typography tokens across unlock and vault screens
+[] Better destructive action affordances and confirmations
+[] Introduce quality-of-life features:
+[] Recent vaults list with quick switch
+[] Optional “reopen last vault on launch”
+[] Optional quick filter chips (entries with OTP, has URL, has notes)
+[] Accessibility and localization baseline:
+[] VoiceOver labels for icon-only buttons
+[] RU/EN localization pass for core screens
+
+# Next planning decisions (after steps 8-10)
 - Group CRUD (create/rename/move/delete)
 - Attachments and history editing
-- Touch ID unlock and sync roadmap
+- Import/export and compatibility matrix hardening
+- Packaging/release automation (sign, notarize, distribute)

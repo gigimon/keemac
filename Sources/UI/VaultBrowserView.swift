@@ -59,6 +59,7 @@ public struct VaultBrowserView: View {
                     Label("New Entry", systemImage: "plus")
                 }
                 .disabled(isPerformingMutation)
+                .hoverHighlight()
 
                 Button {
                     guard let selectedEntry else {
@@ -69,6 +70,7 @@ public struct VaultBrowserView: View {
                     Label("Edit Entry", systemImage: "pencil")
                 }
                 .disabled(selectedEntry == nil || isPerformingMutation)
+                .hoverHighlight()
 
                 Button(role: .destructive) {
                     deletingEntry = selectedEntry
@@ -76,20 +78,7 @@ public struct VaultBrowserView: View {
                     Label("Delete Entry", systemImage: "trash")
                 }
                 .disabled(selectedEntry == nil || isPerformingMutation)
-
-                Button {
-                    columnVisibility = .all
-                } label: {
-                    Label("Show All Columns", systemImage: "sidebar.left")
-                }
-                .help("Show sidebar, entries, and detail columns.")
-
-                Button {
-                    columnVisibility = .doubleColumn
-                } label: {
-                    Label("Hide Sidebar", systemImage: "sidebar.right")
-                }
-                .help("Focus on entries and details columns.")
+                .hoverHighlight(tint: .red)
             }
         }
         .onAppear {
@@ -125,9 +114,11 @@ public struct VaultBrowserView: View {
                     await performDelete(deletingEntry.id)
                 }
             }
+            .hoverHighlight(tint: .red)
             Button("Cancel", role: .cancel) {
                 deletingEntry = nil
             }
+            .hoverHighlight()
         } message: {
             Text("This operation is saved immediately and cannot be undone in KeeMac.")
         }
@@ -141,6 +132,7 @@ public struct VaultBrowserView: View {
             Button("OK", role: .cancel) {
                 operationErrorMessage = nil
             }
+            .hoverHighlight()
         } message: {
             Text(operationErrorMessage ?? "Unknown error")
         }
@@ -462,6 +454,7 @@ private enum EntryEditorMode: Identifiable {
                 password: entry.password ?? "",
                 url: entry.url?.absoluteString ?? "",
                 notes: entry.notes ?? "",
+                iconID: entry.iconID,
                 customFields: customFields,
                 otp: otpForm
             )
@@ -479,6 +472,9 @@ private struct VaultEntryEditorSheet: View {
     @State private var form: VaultEntryForm
     @State private var validationMessage: String?
     @State private var otpEnabled: Bool
+    @State private var revealPassword: Bool = false
+    @State private var showPasswordGenerator: Bool = false
+    @State private var passwordGeneratorOptions = PasswordGenerator.Options()
 
     init(
         mode: EntryEditorMode,
@@ -500,10 +496,34 @@ private struct VaultEntryEditorSheet: View {
                 Section("Basic") {
                     TextField("Title", text: $form.title)
                     TextField("Username", text: $form.username)
-                    SecureField("Password", text: $form.password)
+                    passwordField
                     TextField("URL", text: $form.url)
                     TextField("Notes", text: $form.notes, axis: .vertical)
                         .lineLimit(3...6)
+                }
+
+                Section("Icon") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            EntryIconView(
+                                iconPNGData: nil,
+                                iconID: form.iconID,
+                                size: 20,
+                                fallbackSystemImage: "key.fill"
+                            )
+                            Text(form.iconID.map { "Icon \($0)" } ?? "Default icon")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Default") {
+                                form.iconID = nil
+                            }
+                            .disabled(form.iconID == nil)
+                            .hoverHighlight()
+                        }
+
+                        IconPalettePicker(selectedIconID: $form.iconID)
+                    }
                 }
 
                 Section("Custom Fields") {
@@ -519,6 +539,7 @@ private struct VaultEntryEditorSheet: View {
                                 Button("Remove Field", role: .destructive) {
                                     form.customFields.removeAll(where: { $0.id == field.id })
                                 }
+                                .hoverHighlight(tint: .red)
                             }
                             .padding(.vertical, 4)
                         }
@@ -529,6 +550,7 @@ private struct VaultEntryEditorSheet: View {
                             VaultCustomFieldForm(key: "", value: "", isProtected: false)
                         )
                     }
+                    .hoverHighlight()
                 }
 
                 Section("OTP") {
@@ -603,6 +625,7 @@ private struct VaultEntryEditorSheet: View {
                     dismiss()
                 }
                 .disabled(isSaving)
+                .hoverHighlight()
 
                 Spacer()
 
@@ -611,11 +634,53 @@ private struct VaultEntryEditorSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isSaving)
+                .hoverHighlight()
             }
             .padding(16)
         }
         .frame(minWidth: 560, minHeight: 580)
         .navigationTitle(mode.title)
+    }
+
+    private var passwordField: some View {
+        HStack(spacing: 8) {
+            Group {
+                if revealPassword {
+                    TextField("Password", text: $form.password)
+                        .textFieldStyle(.roundedBorder)
+                } else {
+                    SecureField("Password", text: $form.password)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            Button {
+                revealPassword.toggle()
+            } label: {
+                Image(systemName: revealPassword ? "eye.slash" : "eye")
+            }
+            .buttonStyle(.borderless)
+            .help(revealPassword ? "Hide password" : "Reveal password")
+            .hoverHighlight()
+
+            Button {
+                showPasswordGenerator = true
+            } label: {
+                Image(systemName: "dice")
+            }
+            .buttonStyle(.borderless)
+            .help("Generate password")
+            .hoverHighlight()
+            .popover(isPresented: $showPasswordGenerator, arrowEdge: .bottom) {
+                PasswordGeneratorPopover(
+                    options: $passwordGeneratorOptions,
+                    onGenerate: {
+                        form.password = PasswordGenerator.makePassword(options: passwordGeneratorOptions)
+                        revealPassword = false
+                    }
+                )
+            }
+        }
     }
 
     private func submit() {
@@ -729,7 +794,7 @@ private struct VaultEntryDetailView: View {
                     .textSelection(.enabled)
                 Spacer()
                 if let username = entry.username, !username.isEmpty {
-                    Button("Copy") {
+                    IconActionButton(systemImage: "doc.on.doc", helpText: "Copy username") {
                         copyToClipboard(username)
                     }
                 }
@@ -754,12 +819,15 @@ private struct VaultEntryDetailView: View {
                 Spacer()
 
                 if entry.password != nil {
-                    Button(revealPassword ? "Hide" : "Reveal") {
+                    IconActionButton(
+                        systemImage: revealPassword ? "eye.slash" : "eye",
+                        helpText: revealPassword ? "Hide password" : "Reveal password"
+                    ) {
                         revealPassword.toggle()
                     }
 
                     if let password = entry.password, !password.isEmpty {
-                        Button("Copy") {
+                        IconActionButton(systemImage: "doc.on.doc", helpText: "Copy password") {
                             copyToClipboard(password)
                         }
                     }
@@ -793,7 +861,7 @@ private struct VaultEntryDetailView: View {
 
                     Spacer()
 
-                    Button("Copy") {
+                    IconActionButton(systemImage: "doc.on.doc", helpText: "Copy OTP code") {
                         copyToClipboard(otpState.code)
                     }
                 }
@@ -883,6 +951,156 @@ private struct VaultEntryDetailView: View {
     }
 }
 
+private struct IconActionButton: View {
+    let systemImage: String
+    let helpText: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.borderless)
+        .help(helpText)
+        .hoverHighlight()
+    }
+}
+
+private struct IconPalettePicker: View {
+    @Binding var selectedIconID: Int?
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 30, maximum: 30), spacing: 6)
+    ]
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(DefaultKeePassIconMapper.availableIconIDs, id: \.self) { iconID in
+                    Button {
+                        selectedIconID = iconID
+                    } label: {
+                        Image(systemName: DefaultKeePassIconMapper.symbolName(for: iconID) ?? "questionmark")
+                            .frame(width: 18, height: 18)
+                            .padding(6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(selectedIconID == iconID ? Color.accentColor.opacity(0.22) : Color.clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(selectedIconID == iconID ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Icon \(iconID)")
+                    .hoverHighlight()
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .frame(minHeight: 96, maxHeight: 144)
+    }
+}
+
+private struct PasswordGeneratorPopover: View {
+    @Binding var options: PasswordGenerator.Options
+    let onGenerate: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Password Generator")
+                .font(.headline)
+
+            Stepper("Length: \(options.length)", value: $options.length, in: 8...128)
+
+            Toggle("Lowercase (a-z)", isOn: $options.includeLowercase)
+            Toggle("Uppercase (A-Z)", isOn: $options.includeUppercase)
+            Toggle("Digits (0-9)", isOn: $options.includeDigits)
+            Toggle("Symbols (!@#...)", isOn: $options.includeSymbols)
+
+            if !options.hasAnyCharacterSet {
+                Text("Select at least one character set.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button("Close") {
+                    dismiss()
+                }
+                .hoverHighlight()
+
+                Spacer()
+
+                Button("Generate") {
+                    onGenerate()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!options.hasAnyCharacterSet)
+                .hoverHighlight()
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
+    }
+}
+
+private enum PasswordGenerator {
+    struct Options: Equatable {
+        var length: Int = 20
+        var includeLowercase: Bool = true
+        var includeUppercase: Bool = true
+        var includeDigits: Bool = true
+        var includeSymbols: Bool = true
+
+        var hasAnyCharacterSet: Bool {
+            includeLowercase || includeUppercase || includeDigits || includeSymbols
+        }
+    }
+
+    private static let lowercase = Array("abcdefghijklmnopqrstuvwxyz")
+    private static let uppercase = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    private static let digits = Array("0123456789")
+    private static let symbols = Array("!@#$%^&*()-_=+[]{};:,.?/")
+
+    static func makePassword(options: Options) -> String {
+        var activeSets: [[Character]] = []
+        if options.includeLowercase {
+            activeSets.append(lowercase)
+        }
+        if options.includeUppercase {
+            activeSets.append(uppercase)
+        }
+        if options.includeDigits {
+            activeSets.append(digits)
+        }
+        if options.includeSymbols {
+            activeSets.append(symbols)
+        }
+
+        if activeSets.isEmpty {
+            activeSets = [lowercase]
+        }
+
+        let targetLength = max(options.length, activeSets.count)
+        let fullSet = activeSets.flatMap { $0 }
+        var rng = SystemRandomNumberGenerator()
+        var result: [Character] = activeSets.compactMap { $0.randomElement(using: &rng) }
+
+        while result.count < targetLength {
+            if let next = fullSet.randomElement(using: &rng) {
+                result.append(next)
+            }
+        }
+
+        result.shuffle(using: &rng)
+        return String(result)
+    }
+}
+
 private struct EntryIconView: View {
     let iconPNGData: Data?
     let iconID: Int?
@@ -908,6 +1126,8 @@ private struct EntryIconView: View {
 }
 
 private enum DefaultKeePassIconMapper {
+    static let availableIconIDs = Array(0...68)
+
     static func symbolName(for iconID: Int?) -> String? {
         guard let iconID else {
             return nil

@@ -5,7 +5,26 @@ import UI
 final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+
+        if let icon = loadAppIcon() {
+            NSApp.applicationIconImage = icon
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func loadAppIcon() -> NSImage? {
+        if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            return icon
+        }
+
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            return icon
+        }
+
+        return nil
     }
 }
 

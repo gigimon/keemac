@@ -53,7 +53,13 @@ let package = Package(
         .executableTarget(
             name: "App",
             dependencies: ["Domain", "Data", "UI"],
-            path: "Sources/App"
+            path: "Sources/App",
+            exclude: [
+                "Resources/AppIcon.iconset"
+            ],
+            resources: [
+                .copy("Resources/AppIcon.icns")
+            ]
         ),
         .testTarget(
             name: "DataTests",

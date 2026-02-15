@@ -39,16 +39,29 @@ public struct RootView: View {
                             Button("Lock Vault") {
                                 viewModel.lockVault(reason: .userInitiated)
                             }
+                            .hoverHighlight()
                         }
                     }
             case .loading:
                 loadingView
             case .idle:
-                unlockView(statusMessage: "Ready")
-            case .locked(let message):
-                unlockView(statusMessage: message)
+                if shouldShowBiometricOnlyUnlock {
+                    biometricUnlockView()
+                } else {
+                    unlockView()
+                }
+            case .locked:
+                if shouldShowBiometricOnlyUnlock {
+                    biometricUnlockView()
+                } else {
+                    unlockView()
+                }
             case .failed(let message):
-                unlockView(statusMessage: message, isError: true)
+                if shouldShowBiometricOnlyUnlock {
+                    biometricUnlockView(statusMessage: message, isError: true)
+                } else {
+                    unlockView(statusMessage: message, isError: true)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.loadState)
@@ -56,6 +69,7 @@ public struct RootView: View {
             viewModel.lockVault(reason: .systemSleep)
         }
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.openVault)) { _ in
+            viewModel.disableBiometricUnlockScreen()
             selectFile()
         }
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.selectKeyFile)) { _ in
@@ -84,15 +98,16 @@ public struct RootView: View {
     }
 
     @ViewBuilder
-    private func unlockView(statusMessage: String, isError: Bool = false) -> some View {
+    private func unlockView(statusMessage: String? = nil, isError: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            chooserSection(compact: false)
-            passwordSection
-            statusBanner(statusMessage: statusMessage, isError: isError)
+            controlsSection
+            if let statusMessage, !statusMessage.isEmpty {
+                statusBanner(statusMessage: statusMessage, isError: isError)
+            }
         }
-        .padding(24)
-        .frame(width: 820)
+        .padding(20)
+        .frame(width: 760)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.regularMaterial)
@@ -122,6 +137,62 @@ public struct RootView: View {
         .padding(24)
     }
 
+    @ViewBuilder
+    private func biometricUnlockView(statusMessage: String? = nil, isError: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("KeeMac")
+                .font(.largeTitle.bold())
+
+            Label(viewModel.selectedVaultURL?.lastPathComponent ?? "Saved Vault", systemImage: "externaldrive.fill")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button {
+                    Task {
+                        await viewModel.unlockWithBiometrics()
+                    }
+                } label: {
+                    Label("Unlock with Touch ID", systemImage: "touchid")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .disabled(isLoading)
+                .hoverHighlight()
+
+                Button("Choose Different Vault") {
+                    viewModel.disableBiometricUnlockScreen()
+                    selectFile()
+                }
+                .buttonStyle(.bordered)
+                .hoverHighlight()
+            }
+
+            if let statusMessage, !statusMessage.isEmpty {
+                statusBanner(statusMessage: statusMessage, isError: isError)
+            }
+        }
+        .padding(24)
+        .frame(width: 540)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.separator.opacity(0.35))
+        )
+        .padding(20)
+        .background(
+            LinearGradient(
+                colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .controlBackgroundColor)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("KeeMac")
@@ -131,113 +202,95 @@ public struct RootView: View {
         }
     }
 
-    private func chooserSection(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Group {
-                if compact {
-                    VStack(spacing: 10) {
-                        fileChooserCard(
-                            title: "Database",
-                            subtitle: viewModel.selectedVaultURL?.lastPathComponent ?? "Select .kdbx file",
-                            symbol: "externaldrive.fill",
-                            actionTitle: "Choose Database",
-                            action: selectFile,
-                            clearAction: viewModel.selectedVaultURL == nil ? nil : {
-                                viewModel.clearVaultSelection()
-                            }
-                        )
-
-                        fileChooserCard(
-                            title: "Key File",
-                            subtitle: viewModel.selectedKeyFileURL?.lastPathComponent ?? "Optional",
-                            symbol: "key.fill",
-                            actionTitle: "Choose Key File",
-                            action: selectKeyFile,
-                            clearAction: viewModel.selectedKeyFileURL == nil ? nil : {
-                                viewModel.selectKeyFile(url: nil)
-                            }
-                        )
-                    }
-                } else {
-                    HStack(spacing: 12) {
-                        fileChooserCard(
-                            title: "Database",
-                            subtitle: viewModel.selectedVaultURL?.lastPathComponent ?? "Select .kdbx file",
-                            symbol: "externaldrive.fill",
-                            actionTitle: "Choose Database",
-                            action: selectFile,
-                            clearAction: viewModel.selectedVaultURL == nil ? nil : {
-                                viewModel.clearVaultSelection()
-                            }
-                        )
-
-                        fileChooserCard(
-                            title: "Key File",
-                            subtitle: viewModel.selectedKeyFileURL?.lastPathComponent ?? "Optional",
-                            symbol: "key.fill",
-                            actionTitle: "Choose Key File",
-                            action: selectKeyFile,
-                            clearAction: viewModel.selectedKeyFileURL == nil ? nil : {
-                                viewModel.selectKeyFile(url: nil)
-                            }
-                        )
-                    }
+    private var controlsSection: some View {
+        VStack(spacing: 0) {
+            fileChooserRow(
+                title: "Database",
+                displayedPath: viewModel.selectedVaultURL?.path(percentEncoded: false),
+                placeholder: "Select .kdbx file",
+                symbol: "externaldrive.fill",
+                actionTitle: "Browse",
+                action: selectFile,
+                clearAction: viewModel.selectedVaultURL == nil ? nil : {
+                    viewModel.clearVaultSelection()
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            )
 
-            if let path = viewModel.selectedVaultURL?.path(percentEncoded: false) {
-                filePathBadge(path: path)
-            }
-            if let path = viewModel.selectedKeyFileURL?.path(percentEncoded: false) {
-                filePathBadge(path: path)
-            }
+            Divider()
+                .padding(.horizontal, 14)
+
+            fileChooserRow(
+                title: "Key File",
+                displayedPath: viewModel.selectedKeyFileURL?.path(percentEncoded: false),
+                placeholder: "Optional",
+                symbol: "key.fill",
+                actionTitle: "Browse",
+                action: selectKeyFile,
+                clearAction: viewModel.selectedKeyFileURL == nil ? nil : {
+                    viewModel.selectKeyFile(url: nil)
+                }
+            )
+
+            Divider()
+                .padding(.horizontal, 14)
+
+            passwordSection
+                .padding(14)
         }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.84))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.separator.opacity(0.2))
+        )
     }
 
-    private func fileChooserCard(
+    private func fileChooserRow(
         title: String,
-        subtitle: String,
+        displayedPath: String?,
+        placeholder: String,
         symbol: String,
         actionTitle: String,
         action: @escaping () -> Void,
         clearAction: (() -> Void)?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 10) {
             Label(title, systemImage: symbol)
                 .font(.headline)
+                .frame(width: 110, alignment: .leading)
 
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text(displayedPath ?? placeholder)
+                .font(.callout.monospaced())
+                .foregroundStyle(displayedPath == nil ? .secondary : .primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 8) {
-                Button(actionTitle) {
-                    action()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Button(actionTitle) {
+                action()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .hoverHighlight()
 
-                if let clearAction {
-                    Button("Clear") {
-                        clearAction()
-                    }
-                    .buttonStyle(.bordered)
+            if let clearAction {
+                Button {
+                    clearAction()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
+                .help("Clear \(title.lowercased())")
+                .hoverHighlight()
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.background.opacity(0.72))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.separator.opacity(0.25))
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var passwordSection: some View {
@@ -261,31 +314,9 @@ public struct RootView: View {
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .disabled(viewModel.selectedVaultURL == nil || (masterPassword.isEmpty && viewModel.selectedKeyFileURL == nil) || isLoading)
+                .hoverHighlight()
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.background.opacity(0.72))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.separator.opacity(0.25))
-        )
-    }
-
-    private func filePathBadge(path: String) -> some View {
-        Text(path)
-            .font(.caption.monospaced())
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(.background.opacity(0.55))
-            )
     }
 
     @ViewBuilder
@@ -302,32 +333,36 @@ public struct RootView: View {
         return false
     }
 
+    private var shouldShowBiometricOnlyUnlock: Bool {
+        viewModel.showBiometricUnlockScreen && viewModel.selectedVaultURL != nil
+    }
+
     private var minimumWindowWidth: CGFloat {
         if case .loaded = viewModel.loadState {
             return 980
         }
-        return 820
+        return 760
     }
 
     private var idealWindowWidth: CGFloat {
         if case .loaded = viewModel.loadState {
             return 1100
         }
-        return 860
+        return 800
     }
 
     private var minimumWindowHeight: CGFloat {
         if case .loaded = viewModel.loadState {
             return 680
         }
-        return 420
+        return 380
     }
 
     private var idealWindowHeight: CGFloat {
         if case .loaded = viewModel.loadState {
             return 760
         }
-        return 480
+        return 420
     }
 
     private func selectFile() {
@@ -387,4 +422,5 @@ public struct RootView: View {
         NSEvent.removeMonitor(activityMonitorToken)
         self.activityMonitorToken = nil
     }
+
 }
