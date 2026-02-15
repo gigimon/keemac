@@ -5,6 +5,7 @@ import UI
 @MainActor
 final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
     private var dockIconVisibilityObserver: NSObjectProtocol?
+    private var lockObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.applyActivationPolicy(showDockIcon: AppSettingsStore.shared.showDockIcon)
@@ -26,13 +27,28 @@ final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        lockObserver = NotificationCenter.default.addObserver(
+            forName: AppCommand.lockVault,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                MainWindowController.shared.hide()
+            }
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+        MainWindowController.shared.show()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let dockIconVisibilityObserver {
             NotificationCenter.default.removeObserver(dockIconVisibilityObserver)
             self.dockIconVisibilityObserver = nil
+        }
+        if let lockObserver {
+            NotificationCenter.default.removeObserver(lockObserver)
+            self.lockObserver = nil
         }
     }
 
@@ -61,14 +77,15 @@ final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct KeeMacApp: App {
     @NSApplicationDelegateAdaptor(KeeMacAppDelegate.self) private var appDelegate
-    @State private var viewModel = AppViewModel()
+    private let viewModel: AppViewModel
+
+    init() {
+        let viewModel = AppViewModel()
+        self.viewModel = viewModel
+        MainWindowController.shared.configure(viewModel: viewModel)
+    }
 
     var body: some Scene {
-        Window("KeeMac", id: "main") {
-            RootView(viewModel: viewModel)
-        }
-        .windowResizability(.contentSize)
-
         MenuBarExtra {
             KeeMacMenuBarView(viewModel: viewModel)
         } label: {
@@ -83,17 +100,17 @@ struct KeeMacApp: App {
 
             CommandMenu("Vault") {
                 Button("Open Vault...") {
-                    postCommand(AppCommand.openVault)
+                    postCommandRequiringMainWindow(AppCommand.openVault)
                 }
                 .keyboardShortcut("o", modifiers: [.command])
 
                 Button("Select Key File...") {
-                    postCommand(AppCommand.selectKeyFile)
+                    postCommandRequiringMainWindow(AppCommand.selectKeyFile)
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
                 Button("Clear Key File") {
-                    postCommand(AppCommand.clearKeyFile)
+                    postCommandRequiringMainWindow(AppCommand.clearKeyFile)
                 }
 
                 Divider()
@@ -115,5 +132,12 @@ struct KeeMacApp: App {
 
     private func postCommand(_ command: Notification.Name) {
         NotificationCenter.default.post(name: command, object: nil)
+    }
+
+    private func postCommandRequiringMainWindow(_ command: Notification.Name) {
+        MainWindowController.shared.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            postCommand(command)
+        }
     }
 }

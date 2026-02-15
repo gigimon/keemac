@@ -55,6 +55,9 @@ public struct RootView: View {
                     },
                     onDeleteEntry: { id in
                         try await viewModel.deleteEntry(id: id)
+                    },
+                    onLockVault: {
+                        NotificationCenter.default.post(name: AppCommand.lockVault, object: nil)
                     }
                 )
                     .onAppear {
@@ -63,14 +66,6 @@ public struct RootView: View {
                     }
                     .onDisappear {
                         stopActivityMonitor()
-                    }
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button("Lock Vault") {
-                                viewModel.lockVault(reason: .userInitiated)
-                            }
-                            .hoverHighlight()
-                        }
                     }
             case .loading:
                 loadingView

@@ -4,7 +4,6 @@ import UI
 
 struct KeeMacMenuBarView: View {
     @Bindable var viewModel: AppViewModel
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -43,7 +42,7 @@ struct KeeMacMenuBarView: View {
             Divider()
 
             Button("Lock Vault") {
-                viewModel.lockVault(reason: .userInitiated)
+                NotificationCenter.default.post(name: AppCommand.lockVault, object: nil)
             }
             .disabled(!isVaultLoaded)
 
@@ -72,10 +71,7 @@ struct KeeMacMenuBarView: View {
     }
 
     private func openMainWindow() {
-        if !MainWindowStore.shared.focusWindow() {
-            openWindow(id: "main")
-        }
-        focusBurst()
+        MainWindowController.shared.show()
     }
 
     private func postCommandRequiringMainWindow(_ command: Notification.Name) {
@@ -85,30 +81,4 @@ struct KeeMacMenuBarView: View {
         }
     }
 
-    private func focusMainWindow(retries: Int) {
-        if MainWindowStore.shared.focusWindow() {
-            return
-        }
-
-        guard retries > 0 else {
-            return
-        }
-
-        if retries == 10 || retries == 6 {
-            openWindow(id: "main")
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusMainWindow(retries: retries - 1)
-        }
-    }
-
-    private func focusBurst() {
-        let delays: [Double] = [0.0, 0.08, 0.18, 0.35, 0.65, 1.0]
-        for delay in delays {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                focusMainWindow(retries: 12)
-            }
-        }
-    }
 }

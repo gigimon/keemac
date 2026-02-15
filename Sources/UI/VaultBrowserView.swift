@@ -21,6 +21,7 @@ public struct VaultBrowserView: View {
     private let onCreateEntry: @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void
     private let onUpdateEntry: @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void
     private let onDeleteEntry: @Sendable (_ id: UUID) async throws -> Void
+    private let onLockVault: () -> Void
 
     @State private var searchText: String = ""
     @State private var selectedGroupPath: String?
@@ -40,7 +41,8 @@ public struct VaultBrowserView: View {
         onDeleteGroup: @escaping @Sendable (_ path: String) async throws -> Void,
         onCreateEntry: @escaping @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void,
         onUpdateEntry: @escaping @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void,
-        onDeleteEntry: @escaping @Sendable (_ id: UUID) async throws -> Void
+        onDeleteEntry: @escaping @Sendable (_ id: UUID) async throws -> Void,
+        onLockVault: @escaping () -> Void
     ) {
         self.vault = vault
         self.onCreateGroup = onCreateGroup
@@ -49,6 +51,7 @@ public struct VaultBrowserView: View {
         self.onCreateEntry = onCreateEntry
         self.onUpdateEntry = onUpdateEntry
         self.onDeleteEntry = onDeleteEntry
+        self.onLockVault = onLockVault
     }
 
     public var body: some View {
@@ -60,6 +63,21 @@ public struct VaultBrowserView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 380, max: 520)
         } detail: {
             entryDetail
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                TextField("Search title, username, URL", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 340)
+                    .controlSize(.regular)
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button("Lock Vault") {
+                    onLockVault()
+                }
+                .hoverHighlight()
+            }
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {
@@ -265,7 +283,6 @@ public struct VaultBrowserView: View {
                     entriesEmptyState
                 }
             }
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search title, username, URL")
         }
     }
 
