@@ -96,18 +96,18 @@ Non-goals for MVP:
 
 ## Step 8: Settings system (global + per-vault)
 [] Introduce persistent settings layer:
-[] Create `AppSettingsStore` over `UserDefaults` with typed models and defaults
-[] Split settings into global and per-vault (`vaultIdentity`-scoped)
+[x] Create `AppSettingsStore` over `UserDefaults` with typed models and defaults
+[x] Split settings into global and per-vault (`vaultIdentity`-scoped)
 [] Add migration path for existing timeout/biometric values
-[] Add app settings window/scene (native macOS style):
-[] Section `Security`: Touch ID toggle per selected vault
-[] Section `Security`: auto-lock timeout per selected vault
-[] Section `Clipboard`: auto-clear timeout after copy
+[x] Add app settings window/scene (native macOS style):
+[x] Section `Security`: Touch ID toggle per selected vault
+[x] Section `Security`: auto-lock timeout per selected vault
+[x] Section `Clipboard`: auto-clear timeout after copy
 [] Section `Advanced`: clear clipboard on lock and on app quit
 [] Wire runtime behavior to settings:
-[] Read per-vault timeout when vault becomes active
-[] Respect per-vault Touch ID enable/disable gate before biometric unlock screen
-[] Apply clipboard timeout globally in `SensitiveClipboard`
+[x] Read per-vault timeout when vault becomes active
+[x] Respect per-vault Touch ID enable/disable gate before biometric unlock screen
+[x] Apply clipboard timeout globally in `SensitiveClipboard`
 [] Add tests:
 [] Unit tests for settings persistence/readback and defaults
 [] Unit tests for per-vault override resolution

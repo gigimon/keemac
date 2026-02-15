@@ -264,6 +264,100 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
         XCTAssertFalse(persisted.entries.contains(where: { $0.id == existing.id }))
     }
 
+    func testCreateGroupAndSubgroupPersistToDisk() async throws {
+        let password = "master-password"
+        let vaultURL = try makeVaultFile(password: password, seedEntry: nil)
+        defer {
+            TestSupport.removeIfExists(vaultURL)
+            TestSupport.removeIfExists(URL(fileURLWithPath: vaultURL.path + ".bak"))
+        }
+
+        let loader = KeePassKitVaultLoader()
+        _ = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: nil)
+
+        let afterGroupCreate = try await loader.createGroup(inParentPath: nil, title: "Services", iconID: 18)
+        guard let servicesGroupPath = afterGroupCreate.groups.first(where: { $0.title == "Services" })?.path else {
+            return XCTFail("Created group path not found.")
+        }
+
+        let afterSubgroupCreate = try await loader.createGroup(inParentPath: servicesGroupPath, title: "Prod", iconID: nil)
+        let subgroup = afterSubgroupCreate.groups.first(where: { $0.title == "Prod" })
+        XCTAssertNotNil(subgroup)
+        XCTAssertTrue(subgroup?.path.hasSuffix(".Prod") ?? false)
+        XCTAssertTrue(subgroup?.path.hasPrefix(servicesGroupPath) ?? false)
+
+        let persisted = try await KeePassKitVaultLoader().loadVault(
+            from: vaultURL,
+            masterPassword: password,
+            keyFileURL: nil
+        )
+        XCTAssertTrue(persisted.groups.contains(where: { $0.title == "Services" }))
+        XCTAssertTrue(persisted.groups.contains(where: { $0.title == "Prod" }))
+    }
+
+    func testDeleteGroupRemovesNestedSubgroupsFromVisibleVault() async throws {
+        let password = "master-password"
+        let vaultURL = try makeVaultFile(password: password, seedEntry: nil)
+        defer {
+            TestSupport.removeIfExists(vaultURL)
+            TestSupport.removeIfExists(URL(fileURLWithPath: vaultURL.path + ".bak"))
+        }
+
+        let loader = KeePassKitVaultLoader()
+        _ = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: nil)
+        let afterGroupCreate = try await loader.createGroup(inParentPath: nil, title: "Services", iconID: nil)
+        guard let servicesGroupPath = afterGroupCreate.groups.first(where: { $0.title == "Services" })?.path else {
+            return XCTFail("Created group path not found.")
+        }
+        _ = try await loader.createGroup(inParentPath: servicesGroupPath, title: "Prod", iconID: nil)
+
+        let afterDelete = try await loader.deleteGroup(path: servicesGroupPath)
+        XCTAssertFalse(afterDelete.groups.contains(where: { $0.title == "Services" }))
+        XCTAssertFalse(afterDelete.groups.contains(where: { $0.title == "Prod" }))
+
+        let persisted = try await KeePassKitVaultLoader().loadVault(
+            from: vaultURL,
+            masterPassword: password,
+            keyFileURL: nil
+        )
+        XCTAssertFalse(persisted.groups.contains(where: { $0.title == "Services" }))
+        XCTAssertFalse(persisted.groups.contains(where: { $0.title == "Prod" }))
+    }
+
+    func testUpdateGroupRenamesAndUpdatesIcon() async throws {
+        let password = "master-password"
+        let vaultURL = try makeVaultFile(password: password, seedEntry: nil)
+        defer {
+            TestSupport.removeIfExists(vaultURL)
+            TestSupport.removeIfExists(URL(fileURLWithPath: vaultURL.path + ".bak"))
+        }
+
+        let loader = KeePassKitVaultLoader()
+        _ = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: nil)
+        let afterGroupCreate = try await loader.createGroup(inParentPath: nil, title: "Services", iconID: 5)
+
+        guard let createdGroup = afterGroupCreate.groups.first(where: { $0.title == "Services" }) else {
+            return XCTFail("Created group not found.")
+        }
+
+        let afterUpdate = try await loader.updateGroup(path: createdGroup.path, title: "Platforms", iconID: 31)
+        guard let updatedGroup = afterUpdate.groups.first(where: { $0.title == "Platforms" }) else {
+            return XCTFail("Updated group not found after edit.")
+        }
+        XCTAssertEqual(updatedGroup.iconID, 31)
+        XCTAssertFalse(afterUpdate.groups.contains(where: { $0.title == "Services" }))
+
+        let persisted = try await KeePassKitVaultLoader().loadVault(
+            from: vaultURL,
+            masterPassword: password,
+            keyFileURL: nil
+        )
+        guard let persistedGroup = persisted.groups.first(where: { $0.title == "Platforms" }) else {
+            return XCTFail("Updated group not found after reload.")
+        }
+        XCTAssertEqual(persistedGroup.iconID, 31)
+    }
+
     private struct SeedEntry {
         let title: String
         let username: String

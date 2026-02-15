@@ -5,9 +5,8 @@ import Foundation
 final class SensitiveClipboard {
     static let shared = SensitiveClipboard()
 
-    var autoClearTimeoutSeconds: TimeInterval = 30
-
     private var clearTask: Task<Void, Never>?
+    private let settingsStore = AppSettingsStore.shared
 
     private init() {}
 
@@ -21,7 +20,7 @@ final class SensitiveClipboard {
     private func scheduleAutoClear(expectedChangeCount: Int) {
         clearTask?.cancel()
 
-        let timeout = autoClearTimeoutSeconds
+        let timeout = settingsStore.clipboardAutoClearTimeoutSeconds
         guard timeout > 0 else {
             return
         }

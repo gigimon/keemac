@@ -117,6 +117,78 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
+    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws -> LoadedVault {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            throw VaultError.parseFailure(details: "Group title cannot be empty.")
+        }
+
+        guard let parentGroup = Self.findGroup(in: currentSession.tree, path: parentPath) else {
+            throw VaultError.parseFailure(details: "Cannot find parent group for new group.")
+        }
+
+        let group = currentSession.tree.createGroup(parentGroup)
+        group.add(to: parentGroup)
+        group.title = normalizedTitle
+        group.iconId = iconID ?? Int(KPKEntry.defaultIcon())
+
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func updateGroup(path: String, title: String, iconID: Int?) async throws -> LoadedVault {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+
+        let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPath.isEmpty else {
+            throw VaultError.parseFailure(details: "Cannot edit root group.")
+        }
+
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            throw VaultError.parseFailure(details: "Group title cannot be empty.")
+        }
+
+        guard let group = Self.findGroup(in: currentSession.tree, path: normalizedPath) else {
+            throw VaultError.parseFailure(details: "Group to edit was not found.")
+        }
+
+        group.title = normalizedTitle
+        group.iconId = iconID ?? Int(KPKEntry.defaultIcon())
+
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func deleteGroup(path: String) async throws -> LoadedVault {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+
+        let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPath.isEmpty else {
+            throw VaultError.parseFailure(details: "Cannot delete root group.")
+        }
+
+        guard let group = Self.findGroup(in: currentSession.tree, path: normalizedPath) else {
+            throw VaultError.parseFailure(details: "Group to delete was not found.")
+        }
+        guard group.parent != nil else {
+            throw VaultError.parseFailure(details: "Cannot delete root group.")
+        }
+
+        group.trashOrRemove()
+
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
     private func makeCompositeKey(masterPassword: String, keyFileURL: URL?) throws -> KPKCompositeKey {
         var keyParts: [KPKKey] = []
 

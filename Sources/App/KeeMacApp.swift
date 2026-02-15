@@ -31,12 +31,16 @@ final class KeeMacAppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct KeeMacApp: App {
     @NSApplicationDelegateAdaptor(KeeMacAppDelegate.self) private var appDelegate
+    @State private var viewModel = AppViewModel()
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(viewModel: viewModel)
         }
         .windowResizability(.contentSize)
+        Settings {
+            SettingsView(viewModel: viewModel)
+        }
         .commands {
             CommandGroup(replacing: .newItem) {}
 

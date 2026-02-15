@@ -15,6 +15,9 @@ public struct VaultBrowserView: View {
     }
 
     public let vault: LoadedVault
+    private let onCreateGroup: @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?) async throws -> Void
+    private let onUpdateGroup: @Sendable (_ path: String, _ title: String, _ iconID: Int?) async throws -> Void
+    private let onDeleteGroup: @Sendable (_ path: String) async throws -> Void
     private let onCreateEntry: @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void
     private let onUpdateEntry: @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void
     private let onDeleteEntry: @Sendable (_ id: UUID) async throws -> Void
@@ -24,17 +27,25 @@ public struct VaultBrowserView: View {
     @State private var selectedEntryID: VaultEntry.ID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var editorMode: EntryEditorMode?
+    @State private var groupEditorMode: GroupEditorMode?
     @State private var deletingEntry: VaultEntry?
+    @State private var deletingGroupPath: String?
     @State private var operationErrorMessage: String?
     @State private var isPerformingMutation: Bool = false
 
     public init(
         vault: LoadedVault,
+        onCreateGroup: @escaping @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?) async throws -> Void,
+        onUpdateGroup: @escaping @Sendable (_ path: String, _ title: String, _ iconID: Int?) async throws -> Void,
+        onDeleteGroup: @escaping @Sendable (_ path: String) async throws -> Void,
         onCreateEntry: @escaping @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void,
         onUpdateEntry: @escaping @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void,
         onDeleteEntry: @escaping @Sendable (_ id: UUID) async throws -> Void
     ) {
         self.vault = vault
+        self.onCreateGroup = onCreateGroup
+        self.onUpdateGroup = onUpdateGroup
+        self.onDeleteGroup = onDeleteGroup
         self.onCreateEntry = onCreateEntry
         self.onUpdateEntry = onUpdateEntry
         self.onDeleteEntry = onDeleteEntry
@@ -51,37 +62,13 @@ public struct VaultBrowserView: View {
             entryDetail
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    editorMode = .create(groupPath: selectedGroupPath)
-                } label: {
-                    Label("New Entry", systemImage: "plus")
-                }
-                .disabled(isPerformingMutation)
-                .hoverHighlight()
-
-                Button {
-                    guard let selectedEntry else {
-                        return
-                    }
-                    editorMode = .edit(entry: selectedEntry)
-                } label: {
-                    Label("Edit Entry", systemImage: "pencil")
-                }
-                .disabled(selectedEntry == nil || isPerformingMutation)
-                .hoverHighlight()
-
-                Button(role: .destructive) {
-                    deletingEntry = selectedEntry
-                } label: {
-                    Label("Delete Entry", systemImage: "trash")
-                }
-                .disabled(selectedEntry == nil || isPerformingMutation)
-                .hoverHighlight(tint: .red)
-            }
-        }
         .onAppear {
+            ensureValidSelection()
+        }
+        .onChange(of: vault.summary.groupCount) { _, _ in
+            ensureValidSelection()
+        }
+        .onChange(of: vault.summary.entryCount) { _, _ in
             ensureValidSelection()
         }
         .onChange(of: selectedGroupPath) { _, _ in
@@ -98,6 +85,34 @@ public struct VaultBrowserView: View {
             ) { form in
                 await performEditorAction(mode: mode, form: form)
             }
+        }
+        .sheet(item: $groupEditorMode) { mode in
+            GroupEditorSheet(mode: mode, isSaving: isPerformingMutation) { title, iconID in
+                await performGroupEditorAction(mode: mode, title: title, iconID: iconID)
+            }
+        }
+        .alert("Delete Group?", isPresented: Binding(get: {
+            deletingGroupPath != nil
+        }, set: { isPresented in
+            if !isPresented {
+                deletingGroupPath = nil
+            }
+        })) {
+            Button("Delete", role: .destructive) {
+                guard let deletingGroupPath else {
+                    return
+                }
+                Task {
+                    await performDeleteGroup(deletingGroupPath)
+                }
+            }
+            .hoverHighlight(tint: .red)
+            Button("Cancel", role: .cancel) {
+                deletingGroupPath = nil
+            }
+            .hoverHighlight()
+        } message: {
+            Text("The selected group and all nested entries/subgroups will be moved to Trash or removed, depending on vault settings.")
         }
         .alert("Delete Entry?", isPresented: Binding(get: {
             deletingEntry != nil
@@ -142,6 +157,17 @@ public struct VaultBrowserView: View {
         List(selection: $selectedGroupPath) {
             Text("All Entries")
                 .tag(Optional<String>.none)
+                .contextMenu {
+                    Button("New Entry") {
+                        editorMode = .create(groupPath: nil)
+                    }
+
+                    Divider()
+
+                    Button("New Group") {
+                        groupEditorMode = .create(parentPath: nil)
+                    }
+                }
 
             OutlineGroup(groupTree, children: \.children) { node in
                 HStack(spacing: 8) {
@@ -154,53 +180,107 @@ public struct VaultBrowserView: View {
                     Text(node.title)
                 }
                 .tag(Optional(node.path))
+                .contextMenu {
+                    Button("New Entry") {
+                        editorMode = .create(groupPath: node.path)
+                    }
+
+                    Divider()
+
+                    Button("New Subgroup") {
+                        groupEditorMode = .create(parentPath: node.path)
+                    }
+
+                    Button("Edit Group") {
+                        if let group = vault.groups.first(where: { $0.path == node.path }) {
+                            groupEditorMode = .edit(path: group.path, title: group.title, iconID: group.iconID)
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Delete Group", role: .destructive) {
+                        deletingGroupPath = node.path
+                    }
+                }
             }
         }
         .navigationTitle("Groups")
     }
 
     private var entriesList: some View {
-        List(filteredEntries, selection: $selectedEntryID) { entry in
-            HStack(alignment: .top, spacing: 10) {
-                EntryIconView(
-                    iconPNGData: entry.iconPNGData,
-                    iconID: entry.iconID,
-                    size: 18,
-                    fallbackSystemImage: "key.fill"
-                )
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Entries")
+                    .font(.title3.weight(.semibold))
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(entry.title)
-                        .font(.headline)
+                Spacer()
 
-                    HStack(spacing: 8) {
-                        if let username = entry.username, !username.isEmpty {
-                            Text(username)
+                Button {
+                    editorMode = .create(groupPath: selectedGroupPath)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .help("New entry")
+                .disabled(isPerformingMutation)
+                .hoverHighlight()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            List(filteredEntries, selection: $selectedEntryID) { entry in
+                HStack(alignment: .top, spacing: 10) {
+                    EntryIconView(
+                        iconPNGData: entry.iconPNGData,
+                        iconID: entry.iconID,
+                        size: 18,
+                        fallbackSystemImage: "key.fill"
+                    )
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.title)
+                            .font(.headline)
+
+                        HStack(spacing: 8) {
+                            if let username = entry.username, !username.isEmpty {
+                                Text(username)
+                            }
+
+                            if let host = entry.url?.host, !host.isEmpty {
+                                Text(host)
+                            }
                         }
-
-                        if let host = entry.url?.host, !host.isEmpty {
-                            Text(host)
-                        }
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
                     }
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
+                }
+                .padding(.vertical, 4)
+            }
+            .overlay {
+                if filteredEntries.isEmpty {
+                    entriesEmptyState
                 }
             }
-            .padding(.vertical, 4)
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search title, username, URL")
         }
-        .overlay {
-            if filteredEntries.isEmpty {
-                entriesEmptyState
-            }
-        }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search title, username, URL")
-        .navigationTitle("Entries")
     }
 
     @ViewBuilder
     private var entryDetail: some View {
         if let entry = selectedEntry {
-            VaultEntryDetailView(entry: entry)
+            VaultEntryDetailView(
+                entry: entry,
+                onEdit: isPerformingMutation ? nil : {
+                    editorMode = .edit(entry: entry)
+                },
+                onDelete: isPerformingMutation ? nil : {
+                    deletingEntry = entry
+                }
+            )
         } else {
             ContentUnavailableView(
                 "Select an Entry",
@@ -275,6 +355,11 @@ public struct VaultBrowserView: View {
     }
 
     private func ensureValidSelection() {
+        if let selectedGroupPath,
+           !vault.groups.contains(where: { $0.path == selectedGroupPath }) {
+            self.selectedGroupPath = nil
+        }
+
         if let selectedEntryID, filteredEntries.contains(where: { $0.id == selectedEntryID }) {
             return
         }
@@ -311,6 +396,47 @@ public struct VaultBrowserView: View {
         do {
             try await onDeleteEntry(id)
             deletingEntry = nil
+        } catch {
+            operationErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func performGroupEditorAction(mode: GroupEditorMode, title: String, iconID: Int?) async {
+        guard !isPerformingMutation else {
+            return
+        }
+        isPerformingMutation = true
+        defer { isPerformingMutation = false }
+
+        do {
+            switch mode {
+            case .create(let parentPath):
+                try await onCreateGroup(parentPath, title, iconID)
+            case .edit(let path, _, _):
+                try await onUpdateGroup(path, title, iconID)
+                if selectedGroupPath == path {
+                    selectedGroupPath = nil
+                }
+            }
+            groupEditorMode = nil
+        } catch {
+            operationErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func performDeleteGroup(_ path: String) async {
+        guard !isPerformingMutation else {
+            return
+        }
+        isPerformingMutation = true
+        defer { isPerformingMutation = false }
+
+        do {
+            try await onDeleteGroup(path)
+            if selectedGroupPath == path {
+                selectedGroupPath = nil
+            }
+            deletingGroupPath = nil
         } catch {
             operationErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -391,6 +517,78 @@ public struct VaultBrowserView: View {
     }
 }
 
+private enum GroupEditorMode: Identifiable {
+    case create(parentPath: String?)
+    case edit(path: String, title: String, iconID: Int?)
+
+    var id: String {
+        switch self {
+        case .create(let parentPath):
+            return "create-group:\(parentPath ?? "root")"
+        case .edit(let path, _, _):
+            return "edit-group:\(path)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .create:
+            return "New Group"
+        case .edit:
+            return "Edit Group"
+        }
+    }
+
+    var parentPath: String? {
+        switch self {
+        case .create(let parentPath):
+            return parentPath
+        case .edit(let path, _, _):
+            let components = path.split(separator: ".").map(String.init)
+            guard components.count > 1 else {
+                return nil
+            }
+            return components.dropLast().joined(separator: ".")
+        }
+    }
+
+    var submitTitle: String {
+        switch self {
+        case .create:
+            return "Create"
+        case .edit:
+            return "Save"
+        }
+    }
+
+    var initialTitle: String {
+        switch self {
+        case .create:
+            return ""
+        case .edit(_, let title, _):
+            return title
+        }
+    }
+
+    var initialIconID: Int? {
+        switch self {
+        case .create:
+            return nil
+        case .edit(_, _, let iconID):
+            return iconID
+        }
+    }
+
+    var targetPath: String? {
+        switch self {
+        case .create:
+            return nil
+        case .edit(let path, _, _):
+            return path
+        }
+    }
+}
+
 private enum EntryEditorMode: Identifiable {
     case create(groupPath: String?)
     case edit(entry: VaultEntry)
@@ -458,6 +656,123 @@ private enum EntryEditorMode: Identifiable {
                 customFields: customFields,
                 otp: otpForm
             )
+        }
+    }
+}
+
+private struct GroupEditorSheet: View {
+    let mode: GroupEditorMode
+    let isSaving: Bool
+    let onSubmit: @Sendable (String, Int?) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var iconID: Int?
+    @State private var validationMessage: String?
+
+    init(mode: GroupEditorMode, isSaving: Bool, onSubmit: @escaping @Sendable (String, Int?) async -> Void) {
+        self.mode = mode
+        self.isSaving = isSaving
+        self.onSubmit = onSubmit
+        _title = State(initialValue: mode.initialTitle)
+        _iconID = State(initialValue: mode.initialIconID)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(mode.title)
+                .font(.title3.weight(.semibold))
+
+            if let parentPath = mode.parentPath, !parentPath.isEmpty {
+                LabeledContent("Parent") {
+                    Text(parentPath)
+                        .font(.callout.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            } else {
+                LabeledContent("Parent") {
+                    Text("Root")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let targetPath = mode.targetPath {
+                LabeledContent("Path") {
+                    Text(targetPath)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            TextField("Group title", text: $title)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    submit()
+                }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    EntryIconView(
+                        iconPNGData: nil,
+                        iconID: iconID,
+                        size: 20,
+                        fallbackSystemImage: "folder.fill"
+                    )
+                    Text(iconID.map { "Icon \($0)" } ?? "Default icon")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Default") {
+                        iconID = nil
+                    }
+                    .disabled(iconID == nil)
+                    .hoverHighlight()
+                }
+
+                IconPalettePicker(selectedIconID: $iconID)
+                    .frame(maxHeight: 120)
+            }
+
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .disabled(isSaving)
+                .hoverHighlight()
+
+                Spacer()
+
+                Button(mode.submitTitle) {
+                    submit()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSaving)
+                .hoverHighlight()
+            }
+        }
+        .padding(18)
+        .frame(minWidth: 420)
+    }
+
+    private func submit() {
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            validationMessage = "Group title is required."
+            return
+        }
+
+        validationMessage = nil
+        Task {
+            await onSubmit(normalizedTitle, iconID)
         }
     }
 }
@@ -738,6 +1053,8 @@ private struct VaultEntryEditorSheet: View {
 
 private struct VaultEntryDetailView: View {
     let entry: VaultEntry
+    let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
     @State private var revealPassword: Bool = false
     @State private var now: Date = .now
     private let otpTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -754,6 +1071,15 @@ private struct VaultEntryDetailView: View {
                     )
                     Text(entry.title)
                         .font(.title2.bold())
+
+                    Spacer()
+
+                    if let onEdit {
+                        IconActionButton(systemImage: "pencil", helpText: "Edit entry", action: onEdit)
+                    }
+                    if let onDelete {
+                        IconActionButton(systemImage: "trash", helpText: "Delete entry", tint: .red, action: onDelete)
+                    }
                 }
 
                 metadata
@@ -954,11 +1280,20 @@ private struct VaultEntryDetailView: View {
 private struct IconActionButton: View {
     let systemImage: String
     let helpText: String
+    let tint: Color?
     let action: () -> Void
+
+    init(systemImage: String, helpText: String, tint: Color? = nil, action: @escaping () -> Void) {
+        self.systemImage = systemImage
+        self.helpText = helpText
+        self.tint = tint
+        self.action = action
+    }
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
+                .foregroundStyle(tint ?? .primary)
                 .frame(width: 18, height: 18)
         }
         .buttonStyle(.borderless)

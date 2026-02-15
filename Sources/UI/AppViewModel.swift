@@ -40,24 +40,38 @@ public final class AppViewModel {
     public var selectedVaultURL: URL?
     public var selectedKeyFileURL: URL?
     public var loadState: LoadState = .idle
-    public var idleLockTimeoutSeconds: TimeInterval = 300
     public private(set) var showBiometricUnlockScreen: Bool = false
+    public var clipboardAutoClearTimeoutSeconds: TimeInterval {
+        get { settingsStore.clipboardAutoClearTimeoutSeconds }
+        set { settingsStore.clipboardAutoClearTimeoutSeconds = newValue }
+    }
+
+    public var touchIDEnabledForSelectedVault: Bool {
+        settingsStore.isTouchIDEnabled(for: selectedVaultURL)
+    }
+
+    public var idleLockTimeoutForSelectedVault: TimeInterval {
+        settingsStore.idleLockTimeoutSeconds(for: selectedVaultURL)
+    }
 
     private let vaultLoader: any VaultLoading
     private let vaultEditor: (any VaultEditing)?
     private let sessionController: (any VaultSessionControlling)?
     private let biometricCredentialStore: any BiometricCredentialStoring
+    private let settingsStore: AppSettingsStore
     private let userDefaults: UserDefaults
     private var idleLockTask: Task<Void, Never>?
 
     public init(
         vaultLoader: any VaultLoading = KeePassKitVaultLoader(),
+        settingsStore: AppSettingsStore = .shared,
         userDefaults: UserDefaults = .standard
     ) {
         self.vaultLoader = vaultLoader
         self.vaultEditor = vaultLoader as? any VaultEditing
         self.sessionController = vaultLoader as? any VaultSessionControlling
         self.biometricCredentialStore = KeychainBiometricCredentialStore()
+        self.settingsStore = settingsStore
         self.userDefaults = userDefaults
         restorePersistedSelections()
         refreshBiometricUnlockAvailability()
@@ -103,13 +117,17 @@ public final class AppViewModel {
                 keyFileURL: selectedKeyFileURL
             )
 
-            if !masterPassword.isEmpty {
+            let touchIDEnabled = settingsStore.isTouchIDEnabled(for: selectedVaultURL)
+            if touchIDEnabled && !masterPassword.isEmpty {
                 do {
                     try biometricCredentialStore.saveMasterPassword(masterPassword, for: selectedVaultURL)
                     markBiometricCredentialAvailable(for: selectedVaultURL)
                 } catch {
                     SecureLogger.logUnlockFailure(error)
                 }
+            } else if !touchIDEnabled {
+                biometricCredentialStore.deleteMasterPassword(for: selectedVaultURL)
+                clearBiometricCredentialMarker(for: selectedVaultURL)
             }
 
             refreshBiometricUnlockAvailability()
@@ -163,6 +181,29 @@ public final class AppViewModel {
 
     public func disableBiometricUnlockScreen() {
         showBiometricUnlockScreen = false
+    }
+
+    public func setTouchIDEnabledForSelectedVault(_ isEnabled: Bool) {
+        guard let selectedVaultURL else {
+            return
+        }
+
+        settingsStore.setTouchIDEnabled(isEnabled, for: selectedVaultURL)
+
+        if !isEnabled {
+            biometricCredentialStore.deleteMasterPassword(for: selectedVaultURL)
+            clearBiometricCredentialMarker(for: selectedVaultURL)
+            showBiometricUnlockScreen = false
+        }
+
+        refreshBiometricUnlockAvailability()
+    }
+
+    public func setIdleLockTimeoutForSelectedVault(_ timeout: TimeInterval) {
+        settingsStore.setIdleLockTimeoutSeconds(timeout, for: selectedVaultURL)
+        if case .loaded = loadState {
+            registerUserActivity()
+        }
     }
 
     public func registerUserActivity() {
@@ -227,10 +268,49 @@ public final class AppViewModel {
         registerUserActivity()
     }
 
+    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws {
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: "Vault is not unlocked.")
+        }
+
+        let updatedVault = try await vaultEditor.createGroup(inParentPath: parentPath, title: title, iconID: iconID)
+        loadState = .loaded(updatedVault)
+        registerUserActivity()
+    }
+
+    public func updateGroup(path: String, title: String, iconID: Int?) async throws {
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: "Vault is not unlocked.")
+        }
+
+        let updatedVault = try await vaultEditor.updateGroup(path: path, title: title, iconID: iconID)
+        loadState = .loaded(updatedVault)
+        registerUserActivity()
+    }
+
+    public func deleteGroup(path: String) async throws {
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: "Vault is not unlocked.")
+        }
+
+        let updatedVault = try await vaultEditor.deleteGroup(path: path)
+        loadState = .loaded(updatedVault)
+        registerUserActivity()
+    }
+
     private func scheduleIdleLockTimer() {
         cancelIdleLockTimer()
 
-        let timeout = idleLockTimeoutSeconds
+        let timeout = settingsStore.idleLockTimeoutSeconds(for: selectedVaultURL)
         guard timeout > 0 else {
             return
         }
@@ -272,6 +352,10 @@ public final class AppViewModel {
 
     private func refreshBiometricUnlockAvailability() {
         guard let selectedVaultURL else {
+            showBiometricUnlockScreen = false
+            return
+        }
+        guard settingsStore.isTouchIDEnabled(for: selectedVaultURL) else {
             showBiometricUnlockScreen = false
             return
         }

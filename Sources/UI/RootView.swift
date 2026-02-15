@@ -4,12 +4,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 public struct RootView: View {
-    @State private var viewModel = AppViewModel(vaultLoader: KeePassKitVaultLoader())
+    @Bindable private var viewModel: AppViewModel
     @State private var masterPassword: String = ""
     @State private var activityMonitorToken: Any?
+    @State private var preferBiometricOnlyUnlock: Bool = false
     @FocusState private var isMasterPasswordFocused: Bool
 
-    public init() {}
+    public init(viewModel: AppViewModel) {
+        self.viewModel = viewModel
+    }
 
     public var body: some View {
         Group {
@@ -17,6 +20,15 @@ public struct RootView: View {
             case .loaded(let vault):
                 VaultBrowserView(
                     vault: vault,
+                    onCreateGroup: { parentPath, title, iconID in
+                        try await viewModel.createGroup(inParentPath: parentPath, title: title, iconID: iconID)
+                    },
+                    onUpdateGroup: { path, title, iconID in
+                        try await viewModel.updateGroup(path: path, title: title, iconID: iconID)
+                    },
+                    onDeleteGroup: { path in
+                        try await viewModel.deleteGroup(path: path)
+                    },
                     onCreateEntry: { groupPath, form in
                         try await viewModel.createEntry(inGroupPath: groupPath, form: form)
                     },
@@ -45,16 +57,12 @@ public struct RootView: View {
             case .loading:
                 loadingView
             case .idle:
+                unlockView()
+            case .locked(let message):
                 if shouldShowBiometricOnlyUnlock {
-                    biometricUnlockView()
+                    biometricUnlockView(statusMessage: message)
                 } else {
-                    unlockView()
-                }
-            case .locked:
-                if shouldShowBiometricOnlyUnlock {
-                    biometricUnlockView()
-                } else {
-                    unlockView()
+                    unlockView(statusMessage: message)
                 }
             case .failed(let message):
                 if shouldShowBiometricOnlyUnlock {
@@ -69,6 +77,7 @@ public struct RootView: View {
             viewModel.lockVault(reason: .systemSleep)
         }
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.openVault)) { _ in
+            preferBiometricOnlyUnlock = false
             viewModel.disableBiometricUnlockScreen()
             selectFile()
         }
@@ -83,9 +92,17 @@ public struct RootView: View {
         }
         .onChange(of: viewModel.loadState) { _, newState in
             switch newState {
-            case .idle, .locked, .failed:
+            case .idle:
+                preferBiometricOnlyUnlock = false
                 isMasterPasswordFocused = true
-            case .loading, .loaded:
+            case .locked:
+                preferBiometricOnlyUnlock = true
+                isMasterPasswordFocused = true
+            case .failed:
+                isMasterPasswordFocused = true
+            case .loaded:
+                preferBiometricOnlyUnlock = false
+            case .loading:
                 break
             }
         }
@@ -162,6 +179,7 @@ public struct RootView: View {
                 .hoverHighlight()
 
                 Button("Choose Different Vault") {
+                    preferBiometricOnlyUnlock = false
                     viewModel.disableBiometricUnlockScreen()
                     selectFile()
                 }
@@ -315,6 +333,20 @@ public struct RootView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(viewModel.selectedVaultURL == nil || (masterPassword.isEmpty && viewModel.selectedKeyFileURL == nil) || isLoading)
                 .hoverHighlight()
+
+                if canUseBiometricUnlock {
+                    Button {
+                        Task {
+                            await viewModel.unlockWithBiometrics()
+                        }
+                    } label: {
+                        Label("Open by Touch ID", systemImage: "touchid")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .disabled(isLoading || viewModel.selectedVaultURL == nil)
+                    .hoverHighlight()
+                }
             }
         }
     }
@@ -333,8 +365,12 @@ public struct RootView: View {
         return false
     }
 
-    private var shouldShowBiometricOnlyUnlock: Bool {
+    private var canUseBiometricUnlock: Bool {
         viewModel.showBiometricUnlockScreen && viewModel.selectedVaultURL != nil
+    }
+
+    private var shouldShowBiometricOnlyUnlock: Bool {
+        preferBiometricOnlyUnlock && canUseBiometricUnlock
     }
 
     private var minimumWindowWidth: CGFloat {

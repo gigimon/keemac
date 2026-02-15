@@ -21,6 +21,9 @@ public protocol VaultEditing: Sendable {
     func createEntry(inGroupPath groupPath: String?, form: VaultEntryForm) async throws -> LoadedVault
     func updateEntry(id: UUID, form: VaultEntryForm) async throws -> LoadedVault
     func deleteEntry(id: UUID) async throws -> LoadedVault
+    func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws -> LoadedVault
+    func updateGroup(path: String, title: String, iconID: Int?) async throws -> LoadedVault
+    func deleteGroup(path: String) async throws -> LoadedVault
 }
 
 public protocol VaultSessionControlling: Sendable {
