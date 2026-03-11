@@ -9,6 +9,7 @@ public final class AppSettingsStore {
         static let defaultIdleLockTimeoutSeconds = "keemac.settings.vault.idlelock.default.seconds"
         static let perVaultSettingsData = "keemac.settings.vault.pervault.data"
         static let showDockIcon = "keemac.settings.appearance.showDockIcon"
+        static let includeSubgroupEntries = "keemac.settings.browser.includeSubgroupEntries"
     }
 
     private struct VaultSettings: Codable {
@@ -46,6 +47,12 @@ public final class AppSettingsStore {
         }
     }
 
+    public var includeSubgroupEntries: Bool {
+        didSet {
+            userDefaults.set(includeSubgroupEntries, forKey: Key.includeSubgroupEntries)
+        }
+    }
+
     private var perVaultSettings: [String: VaultSettings] {
         didSet {
             persistPerVaultSettings()
@@ -67,6 +74,12 @@ public final class AppSettingsStore {
             showDockIcon = persistedShowDockIcon
         } else {
             showDockIcon = true
+        }
+
+        if let persistedIncludeSubgroupEntries = userDefaults.object(forKey: Key.includeSubgroupEntries) as? Bool {
+            includeSubgroupEntries = persistedIncludeSubgroupEntries
+        } else {
+            includeSubgroupEntries = false
         }
 
         if let data = userDefaults.data(forKey: Key.perVaultSettingsData),

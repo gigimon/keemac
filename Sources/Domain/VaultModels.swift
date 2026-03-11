@@ -31,19 +31,76 @@ public struct VaultGroup: Identifiable, Equatable, Sendable {
 public struct VaultEntry: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let groupPath: String
+    public let isTrashed: Bool
+    public let modifiedAt: Date?
     public let title: String
     public let username: String?
     public let password: String?
     public let url: URL?
     public let notes: String?
     public let customFields: [VaultCustomField]
+    public let attachments: [VaultAttachment]
     public let iconPNGData: Data?
+    public let iconID: Int?
+    public let otp: VaultOTPConfiguration?
+    public let otpStorageStyle: VaultOTPStorageStyle?
+    public let history: [VaultEntryRevision]
+
+    public init(
+        id: UUID = UUID(),
+        groupPath: String = "",
+        isTrashed: Bool = false,
+        modifiedAt: Date? = nil,
+        title: String,
+        username: String? = nil,
+        password: String? = nil,
+        url: URL? = nil,
+        notes: String? = nil,
+        customFields: [VaultCustomField] = [],
+        attachments: [VaultAttachment] = [],
+        iconPNGData: Data? = nil,
+        iconID: Int? = nil,
+        otp: VaultOTPConfiguration? = nil,
+        otpStorageStyle: VaultOTPStorageStyle? = nil,
+        history: [VaultEntryRevision] = []
+    ) {
+        self.id = id
+        self.groupPath = groupPath
+        self.isTrashed = isTrashed
+        self.modifiedAt = modifiedAt
+        self.title = title
+        self.username = username
+        self.password = password
+        self.url = url
+        self.notes = notes
+        self.customFields = customFields
+        self.attachments = attachments
+        self.iconPNGData = iconPNGData
+        self.iconID = iconID
+        self.otp = otp
+        self.otpStorageStyle = otpStorageStyle
+        self.history = history
+    }
+}
+
+public struct VaultEntryRevision: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let modifiedAt: Date?
+    public let groupPath: String
+    public let title: String
+    public let username: String?
+    public let password: String?
+    public let url: URL?
+    public let notes: String?
+    public let customFields: [VaultCustomField]
+    public let attachments: [VaultAttachment]
     public let iconID: Int?
     public let otp: VaultOTPConfiguration?
     public let otpStorageStyle: VaultOTPStorageStyle?
 
     public init(
         id: UUID = UUID(),
+        modifiedAt: Date? = nil,
         groupPath: String = "",
         title: String,
         username: String? = nil,
@@ -51,12 +108,13 @@ public struct VaultEntry: Identifiable, Equatable, Sendable {
         url: URL? = nil,
         notes: String? = nil,
         customFields: [VaultCustomField] = [],
-        iconPNGData: Data? = nil,
+        attachments: [VaultAttachment] = [],
         iconID: Int? = nil,
         otp: VaultOTPConfiguration? = nil,
         otpStorageStyle: VaultOTPStorageStyle? = nil
     ) {
         self.id = id
+        self.modifiedAt = modifiedAt
         self.groupPath = groupPath
         self.title = title
         self.username = username
@@ -64,10 +122,28 @@ public struct VaultEntry: Identifiable, Equatable, Sendable {
         self.url = url
         self.notes = notes
         self.customFields = customFields
-        self.iconPNGData = iconPNGData
+        self.attachments = attachments
         self.iconID = iconID
         self.otp = otp
         self.otpStorageStyle = otpStorageStyle
+    }
+}
+
+public struct VaultAttachment: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let data: Data
+    public let isProtected: Bool
+
+    public var size: Int {
+        data.count
+    }
+
+    public init(name: String, data: Data, isProtected: Bool = false) {
+        self.id = name
+        self.name = name
+        self.data = data
+        self.isProtected = isProtected
     }
 }
 

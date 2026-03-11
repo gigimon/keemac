@@ -49,6 +49,7 @@ public struct VaultEntryForm: Equatable, Sendable {
     public var notes: String
     public var iconID: Int?
     public var customFields: [VaultCustomFieldForm]
+    public var attachments: [VaultAttachment]
     public var otp: VaultOTPForm?
 
     public init(
@@ -59,6 +60,7 @@ public struct VaultEntryForm: Equatable, Sendable {
         notes: String = "",
         iconID: Int? = nil,
         customFields: [VaultCustomFieldForm] = [],
+        attachments: [VaultAttachment] = [],
         otp: VaultOTPForm? = nil
     ) {
         self.title = title
@@ -68,6 +70,7 @@ public struct VaultEntryForm: Equatable, Sendable {
         self.notes = notes
         self.iconID = iconID
         self.customFields = customFields
+        self.attachments = attachments
         self.otp = otp
     }
 }

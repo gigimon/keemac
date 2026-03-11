@@ -11,6 +11,7 @@ public final class AppViewModel {
         static let keyFileBookmark = "keemac.selection.keyfile.bookmark"
         static let biometricVaultPath = "keemac.selection.biometric.vault.path"
         static let recentVaults = "keemac.selection.recent.v1"
+        static let favoriteEntries = "keemac.entries.favorites.v1"
     }
 
     public enum LockReason: String, Sendable {
@@ -56,11 +57,18 @@ public final class AppViewModel {
         let keyFileBookmark: Data?
     }
 
+    private struct PersistedFavoriteEntries: Codable {
+        let vaultPath: String
+        let entryIDs: [String]
+    }
+
     public var selectedVaultURL: URL?
     public var selectedKeyFileURL: URL?
     public var loadState: LoadState = .idle
     public private(set) var showBiometricUnlockScreen: Bool = false
     public private(set) var recentVaults: [RecentVault] = []
+    public private(set) var favoriteEntryIDs: Set<UUID> = []
+    public private(set) var recentViewedEntryIDs: [UUID] = []
     public var clipboardAutoClearTimeoutSeconds: TimeInterval {
         get { settingsStore.clipboardAutoClearTimeoutSeconds }
         set { settingsStore.clipboardAutoClearTimeoutSeconds = newValue }
@@ -76,6 +84,11 @@ public final class AppViewModel {
 
     public var showDockIcon: Bool {
         settingsStore.showDockIcon
+    }
+
+    public var includeSubgroupEntriesInGroupView: Bool {
+        get { settingsStore.includeSubgroupEntries }
+        set { settingsStore.includeSubgroupEntries = newValue }
     }
 
     private let vaultLoader: any VaultLoading
@@ -105,12 +118,16 @@ public final class AppViewModel {
     public func selectVault(url: URL) {
         selectedVaultURL = url
         persistSelection(url, key: PersistedSelectionKey.vaultBookmark)
+        restoreFavoriteEntries()
+        recentViewedEntryIDs = []
         refreshBiometricUnlockAvailability()
         loadState = .idle
     }
 
     public func clearVaultSelection() {
         selectedVaultURL = nil
+        favoriteEntryIDs = []
+        recentViewedEntryIDs = []
         userDefaults.removeObject(forKey: PersistedSelectionKey.vaultBookmark)
         showBiometricUnlockScreen = false
         loadState = .idle
@@ -137,6 +154,8 @@ public final class AppViewModel {
             userDefaults.removeObject(forKey: PersistedSelectionKey.keyFileBookmark)
         }
 
+        restoreFavoriteEntries()
+        recentViewedEntryIDs = []
         refreshBiometricUnlockAvailability()
         loadState = .idle
     }
@@ -171,6 +190,8 @@ public final class AppViewModel {
             }
 
             recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: selectedKeyFileURL)
+            restoreFavoriteEntries()
+            syncEntryCollections(with: loadedVault)
             refreshBiometricUnlockAvailability()
             loadState = .loaded(loadedVault)
             registerUserActivity()
@@ -199,6 +220,8 @@ public final class AppViewModel {
                 keyFileURL: selectedKeyFileURL
             )
             recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: selectedKeyFileURL)
+            restoreFavoriteEntries()
+            syncEntryCollections(with: loadedVault)
             refreshBiometricUnlockAvailability()
             loadState = .loaded(loadedVault)
             registerUserActivity()
@@ -270,6 +293,7 @@ public final class AppViewModel {
         }
 
         cancelIdleLockTimer()
+        recentViewedEntryIDs = []
         SecureLogger.logVaultLocked(reason: reason.rawValue)
         refreshBiometricUnlockAvailability()
         loadState = .locked(reason.message)
@@ -289,6 +313,7 @@ public final class AppViewModel {
         }
 
         let updatedVault = try await vaultEditor.createEntry(inGroupPath: groupPath, form: form)
+        syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         registerUserActivity()
     }
@@ -302,6 +327,7 @@ public final class AppViewModel {
         }
 
         let updatedVault = try await vaultEditor.updateEntry(id: id, form: form)
+        syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         registerUserActivity()
     }
@@ -315,6 +341,35 @@ public final class AppViewModel {
         }
 
         let updatedVault = try await vaultEditor.deleteEntry(id: id)
+        syncEntryCollections(with: updatedVault)
+        loadState = .loaded(updatedVault)
+        registerUserActivity()
+    }
+
+    public func restoreEntry(id: UUID) async throws {
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: "Vault is not unlocked.")
+        }
+
+        let updatedVault = try await vaultEditor.restoreEntry(id: id)
+        syncEntryCollections(with: updatedVault)
+        loadState = .loaded(updatedVault)
+        registerUserActivity()
+    }
+
+    public func revertEntry(id: UUID, toHistoryRevisionAt index: Int) async throws {
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: "Vault is not unlocked.")
+        }
+
+        let updatedVault = try await vaultEditor.revertEntry(id: id, toHistoryRevisionAt: index)
+        syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         registerUserActivity()
     }
@@ -328,6 +383,7 @@ public final class AppViewModel {
         }
 
         let updatedVault = try await vaultEditor.createGroup(inParentPath: parentPath, title: title, iconID: iconID)
+        syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         registerUserActivity()
     }
@@ -341,6 +397,7 @@ public final class AppViewModel {
         }
 
         let updatedVault = try await vaultEditor.updateGroup(path: path, title: title, iconID: iconID)
+        syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         registerUserActivity()
     }
@@ -354,8 +411,26 @@ public final class AppViewModel {
         }
 
         let updatedVault = try await vaultEditor.deleteGroup(path: path)
+        syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         registerUserActivity()
+    }
+
+    public func toggleFavorite(entryID: UUID) {
+        if favoriteEntryIDs.contains(entryID) {
+            favoriteEntryIDs.remove(entryID)
+        } else {
+            favoriteEntryIDs.insert(entryID)
+        }
+        persistFavoriteEntries()
+    }
+
+    public func markEntryViewed(_ entryID: UUID) {
+        recentViewedEntryIDs.removeAll { $0 == entryID }
+        recentViewedEntryIDs.insert(entryID, at: 0)
+        if recentViewedEntryIDs.count > 50 {
+            recentViewedEntryIDs = Array(recentViewedEntryIDs.prefix(50))
+        }
     }
 
     private func scheduleIdleLockTimer() {
@@ -565,6 +640,58 @@ public final class AppViewModel {
             return
         }
         userDefaults.set(encoded, forKey: PersistedSelectionKey.recentVaults)
+    }
+
+    private func restoreFavoriteEntries() {
+        guard let selectedVaultURL else {
+            favoriteEntryIDs = []
+            return
+        }
+
+        guard let data = userDefaults.data(forKey: PersistedSelectionKey.favoriteEntries),
+              let persisted = try? JSONDecoder().decode([PersistedFavoriteEntries].self, from: data) else {
+            favoriteEntryIDs = []
+            return
+        }
+
+        let vaultPath = vaultIdentity(for: selectedVaultURL)
+        let entryIDs = persisted
+            .first(where: { $0.vaultPath == vaultPath })?
+            .entryIDs
+            .compactMap(UUID.init(uuidString:)) ?? []
+        favoriteEntryIDs = Set(entryIDs)
+    }
+
+    private func persistFavoriteEntries() {
+        guard let selectedVaultURL else {
+            return
+        }
+
+        let vaultPath = vaultIdentity(for: selectedVaultURL)
+        var persisted = userDefaults.data(forKey: PersistedSelectionKey.favoriteEntries)
+            .flatMap { try? JSONDecoder().decode([PersistedFavoriteEntries].self, from: $0) } ?? []
+
+        persisted.removeAll { $0.vaultPath == vaultPath }
+
+        if !favoriteEntryIDs.isEmpty {
+            persisted.append(
+                PersistedFavoriteEntries(
+                    vaultPath: vaultPath,
+                    entryIDs: favoriteEntryIDs.map(\.uuidString).sorted()
+                )
+            )
+        }
+
+        if let encoded = try? JSONEncoder().encode(persisted) {
+            userDefaults.set(encoded, forKey: PersistedSelectionKey.favoriteEntries)
+        }
+    }
+
+    private func syncEntryCollections(with vault: LoadedVault) {
+        let availableIDs = Set(vault.entries.map(\.id))
+        favoriteEntryIDs = favoriteEntryIDs.intersection(availableIDs)
+        recentViewedEntryIDs = recentViewedEntryIDs.filter { availableIDs.contains($0) }
+        persistFavoriteEntries()
     }
 
     private func markBiometricCredentialAvailable(for vaultURL: URL) {

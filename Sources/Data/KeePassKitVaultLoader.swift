@@ -96,6 +96,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.parseFailure(details: "Entry to update was not found.")
         }
 
+        entry.pushHistory()
         try Self.apply(form: form, to: entry)
 
         try save(session: currentSession)
@@ -112,6 +113,45 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
 
         entry.trashOrRemove()
+
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func restoreEntry(id: UUID) async throws -> LoadedVault {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+
+        guard let entry = Self.findEntry(in: currentSession.tree, id: id) else {
+            throw VaultError.parseFailure(details: "Entry to restore was not found.")
+        }
+        guard entry.isTrashed else {
+            throw VaultError.parseFailure(details: "Only trashed entries can be restored.")
+        }
+
+        let targetGroup = Self.resolveRestoreGroup(for: entry, in: currentSession.tree)
+        entry.move(to: targetGroup)
+
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func revertEntry(id: UUID, toHistoryRevisionAt index: Int) async throws -> LoadedVault {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+
+        guard let entry = Self.findEntry(in: currentSession.tree, id: id) else {
+            throw VaultError.parseFailure(details: "Entry to revert was not found.")
+        }
+
+        let sortedHistory = Self.sortedHistoryEntries(from: entry)
+        guard sortedHistory.indices.contains(index) else {
+            throw VaultError.parseFailure(details: "History revision to revert was not found.")
+        }
+
+        entry.revert(to: sortedHistory[index])
 
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
@@ -293,41 +333,13 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                 lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
             }
 
-        let allEntries = tree.allEntries.filter { !$0.isHistory && !$0.isMeta && !$0.isTrashed }
+        let allEntries = tree.allEntries.filter { !$0.isHistory && !$0.isMeta }
         var entries: [VaultEntry] = []
         entries.reserveCapacity(allEntries.count)
 
         for entry in allEntries {
-            let url = entry.url.isEmpty ? nil : URL(string: entry.url)
-            let customFields = entry.customAttributes
-                .filter { !isSystemCustomFieldKey($0.key) }
-                .map {
-                    VaultCustomField(
-                        key: $0.key,
-                        value: $0.value,
-                        isProtected: $0.protect
-                    )
-                }
-                .sorted { lhs, rhs in
-                    lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
-                }
-
-            let otp = makeOTPConfiguration(from: entry)
             entries.append(
-                VaultEntry(
-                    id: UUID(uuidString: entry.uuid.uuidString) ?? UUID(),
-                    groupPath: entry.parent?.breadcrumb ?? "",
-                    title: entry.title,
-                    username: entry.username.isEmpty ? nil : entry.username,
-                    password: entry.password.isEmpty ? nil : entry.password,
-                    url: url,
-                    notes: entry.notes.isEmpty ? nil : entry.notes,
-                    customFields: customFields,
-                    iconPNGData: iconData(from: entry.icon),
-                    iconID: normalizedIconID(entry.iconId),
-                    otp: otp?.configuration,
-                    otpStorageStyle: otp?.storageStyle
-                )
+                mapEntry(entry)
             )
         }
 
@@ -339,7 +351,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             summary: VaultSummary(
                 fileName: fileURL.lastPathComponent,
                 groupCount: groups.count,
-                entryCount: entries.count
+                entryCount: entries.filter { !$0.isTrashed }.count
             ),
             groups: groups,
             entries: entries
@@ -359,6 +371,130 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         tree.allEntries.first { $0.uuid.uuidString.lowercased() == id.uuidString.lowercased() }
     }
 
+    private static func mapEntry(_ entry: KPKEntry) -> VaultEntry {
+        let otp = makeOTPConfiguration(from: entry)
+        let history = sortedHistoryEntries(from: entry)
+            .map(mapRevision)
+            .sorted { lhs, rhs in
+                switch (lhs.modifiedAt, rhs.modifiedAt) {
+                case let (lhsDate?, rhsDate?):
+                    return lhsDate > rhsDate
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                case (.none, .none):
+                    return lhs.id.uuidString > rhs.id.uuidString
+                }
+            }
+
+        return VaultEntry(
+            id: UUID(uuidString: entry.uuid.uuidString) ?? UUID(),
+            groupPath: entry.parent?.breadcrumb ?? "",
+            isTrashed: entry.isTrashed,
+            modifiedAt: entry.timeInfo.modificationDate,
+            title: entry.title,
+            username: entry.username.isEmpty ? nil : entry.username,
+            password: entry.password.isEmpty ? nil : entry.password,
+            url: normalizedURL(from: entry.url),
+            notes: entry.notes.isEmpty ? nil : entry.notes,
+            customFields: customFields(from: entry),
+            attachments: attachments(from: entry),
+            iconPNGData: iconData(from: entry.icon),
+            iconID: normalizedIconID(entry.iconId),
+            otp: otp?.configuration,
+            otpStorageStyle: otp?.storageStyle,
+            history: history
+        )
+    }
+
+    private static func mapRevision(_ entry: KPKEntry) -> VaultEntryRevision {
+        let otp = makeOTPConfiguration(from: entry)
+        return VaultEntryRevision(
+            id: UUID(uuidString: entry.uuid.uuidString) ?? UUID(),
+            modifiedAt: entry.timeInfo.modificationDate,
+            groupPath: entry.parent?.breadcrumb ?? "",
+            title: entry.title,
+            username: entry.username.isEmpty ? nil : entry.username,
+            password: entry.password.isEmpty ? nil : entry.password,
+            url: normalizedURL(from: entry.url),
+            notes: entry.notes.isEmpty ? nil : entry.notes,
+            customFields: customFields(from: entry),
+            attachments: attachments(from: entry),
+            iconID: normalizedIconID(entry.iconId),
+            otp: otp?.configuration,
+            otpStorageStyle: otp?.storageStyle
+        )
+    }
+
+    private static func normalizedURL(from value: String) -> URL? {
+        guard !value.isEmpty else {
+            return nil
+        }
+        return URL(string: value)
+    }
+
+    private static func customFields(from entry: KPKEntry) -> [VaultCustomField] {
+        entry.customAttributes
+            .filter { !isSystemCustomFieldKey($0.key) }
+            .map {
+                VaultCustomField(
+                    key: $0.key,
+                    value: $0.value,
+                    isProtected: $0.protect
+                )
+            }
+            .sorted { lhs, rhs in
+                lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+            }
+    }
+
+    private static func attachments(from entry: KPKEntry) -> [VaultAttachment] {
+        entry.binaries
+            .map {
+                VaultAttachment(name: $0.name, data: $0.data, isProtected: $0.protect)
+            }
+            .sorted { lhs, rhs in
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    private static func sortedHistoryEntries(from entry: KPKEntry) -> [KPKEntry] {
+        entry.history.sorted { lhs, rhs in
+            switch (lhs.timeInfo.modificationDate, rhs.timeInfo.modificationDate) {
+            case let (lhsDate?, rhsDate?):
+                return lhsDate > rhsDate
+            case (.some, .none):
+                return true
+            case (.none, .some):
+                return false
+            case (.none, .none):
+                return lhs.uuid.uuidString > rhs.uuid.uuidString
+            }
+        }
+    }
+
+    private static func resolveRestoreGroup(for entry: KPKEntry, in tree: KPKTree) -> KPKGroup {
+        if let previousParent = entry.previousParent,
+           let restoredGroup = tree.root?.forUUID(previousParent),
+           restoredGroup !== tree.trash {
+            return restoredGroup
+        }
+
+        if let currentParent = entry.parent, currentParent !== tree.trash {
+            return currentParent
+        }
+
+        if let root = tree.root {
+            return root
+        }
+
+        let root = tree.createGroup(nil)
+        root.title = "Root"
+        tree.root = root
+        return root
+    }
+
     private static func apply(form: VaultEntryForm, to entry: KPKEntry) throws {
         let normalizedTitle = form.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTitle.isEmpty else {
@@ -373,6 +509,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         entry.iconId = form.iconID ?? Int(KPKEntry.defaultIcon())
 
         try applyCustomFields(form.customFields, to: entry)
+        applyAttachments(form.attachments, to: entry)
         try applyOTP(form.otp, to: entry, title: normalizedTitle)
     }
 
@@ -398,6 +535,20 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             let key = field.key.trimmingCharacters(in: .whitespacesAndNewlines)
             let attribute = KPKAttribute(key: key, value: field.value, isProtected: field.isProtected)
             entry.addCustomAttribute(attribute)
+        }
+    }
+
+    private static func applyAttachments(_ attachments: [VaultAttachment], to entry: KPKEntry) {
+        for binary in entry.binaries {
+            entry.removeBinary(binary)
+        }
+
+        for attachment in attachments {
+            let binary = KPKBinary(name: attachment.name, data: attachment.data)
+            binary?.protect = attachment.isProtected
+            if let binary {
+                entry.addBinary(binary)
+            }
         }
     }
 

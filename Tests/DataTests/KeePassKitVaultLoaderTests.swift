@@ -128,6 +128,9 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
             customFields: [
                 VaultCustomFieldForm(key: "env", value: "prod", isProtected: false)
             ],
+            attachments: [
+                VaultAttachment(name: "config.txt", data: Data("hello attachment".utf8))
+            ],
             otp: VaultOTPForm(
                 secret: "JBSWY3DPEHPK3PXP",
                 digits: 6,
@@ -158,6 +161,9 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
         XCTAssertEqual(entry.customFields.count, 1)
         XCTAssertEqual(entry.customFields.first?.key, "env")
         XCTAssertEqual(entry.customFields.first?.value, "prod")
+        XCTAssertEqual(entry.attachments.count, 1)
+        XCTAssertEqual(entry.attachments.first?.name, "config.txt")
+        XCTAssertEqual(String(data: try XCTUnwrap(entry.attachments.first?.data), encoding: .utf8), "hello attachment")
         XCTAssertEqual(entry.otp?.digits, 6)
         XCTAssertEqual(entry.otp?.period, 30)
         XCTAssertEqual(entry.otp?.algorithm, .sha1)
@@ -230,6 +236,9 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
         XCTAssertEqual(entry.otp?.period, 45)
         XCTAssertEqual(entry.otp?.algorithm, .sha512)
         XCTAssertEqual(entry.otpStorageStyle, .native)
+        XCTAssertEqual(entry.history.count, 1)
+        XCTAssertEqual(entry.history.first?.title, "Seed Entry")
+        XCTAssertEqual(entry.history.first?.username, "seed-user")
     }
 
     func testDeleteEntryPersistsToDisk() async throws {
@@ -254,14 +263,104 @@ final class KeePassKitVaultLoaderTests: XCTestCase {
         }
 
         let afterDelete = try await loader.deleteEntry(id: existing.id)
-        XCTAssertFalse(afterDelete.entries.contains(where: { $0.id == existing.id }))
+        let trashedAfterDelete = try XCTUnwrap(afterDelete.entries.first(where: { $0.id == existing.id }))
+        XCTAssertTrue(trashedAfterDelete.isTrashed)
 
         let persisted = try await KeePassKitVaultLoader().loadVault(
             from: vaultURL,
             masterPassword: password,
             keyFileURL: nil
         )
-        XCTAssertFalse(persisted.entries.contains(where: { $0.id == existing.id }))
+        let persistedTrashed = try XCTUnwrap(persisted.entries.first(where: { $0.id == existing.id }))
+        XCTAssertTrue(persistedTrashed.isTrashed)
+    }
+
+    func testRestoreEntryMovesItOutOfTrashAndPersists() async throws {
+        let password = "master-password"
+        let seedEntry = SeedEntry(
+            title: "Entry To Restore",
+            username: "user",
+            password: "pass",
+            url: "https://restore.local",
+            notes: "notes"
+        )
+        let vaultURL = try makeVaultFile(password: password, seedEntry: seedEntry)
+        defer {
+            TestSupport.removeIfExists(vaultURL)
+            TestSupport.removeIfExists(URL(fileURLWithPath: vaultURL.path + ".bak"))
+        }
+
+        let loader = KeePassKitVaultLoader()
+        let loaded = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: nil)
+        let existing = try XCTUnwrap(loaded.entries.first)
+
+        let trashedVault = try await loader.deleteEntry(id: existing.id)
+        XCTAssertTrue(try XCTUnwrap(trashedVault.entries.first(where: { $0.id == existing.id })).isTrashed)
+
+        let restoredVault = try await loader.restoreEntry(id: existing.id)
+        let restoredEntry = try XCTUnwrap(restoredVault.entries.first(where: { $0.id == existing.id }))
+        XCTAssertFalse(restoredEntry.isTrashed)
+        XCTAssertEqual(restoredEntry.groupPath, existing.groupPath)
+
+        let persisted = try await KeePassKitVaultLoader().loadVault(
+            from: vaultURL,
+            masterPassword: password,
+            keyFileURL: nil
+        )
+        let persistedEntry = try XCTUnwrap(persisted.entries.first(where: { $0.id == existing.id }))
+        XCTAssertFalse(persistedEntry.isTrashed)
+        XCTAssertEqual(persistedEntry.groupPath, existing.groupPath)
+    }
+
+    func testRevertEntryRestoresSelectedHistoryRevision() async throws {
+        let password = "master-password"
+        let seedEntry = SeedEntry(
+            title: "Version 1",
+            username: "user-v1",
+            password: "pass-v1",
+            url: "https://v1.local",
+            notes: "notes-v1"
+        )
+        let vaultURL = try makeVaultFile(password: password, seedEntry: seedEntry)
+        defer {
+            TestSupport.removeIfExists(vaultURL)
+            TestSupport.removeIfExists(URL(fileURLWithPath: vaultURL.path + ".bak"))
+        }
+
+        let loader = KeePassKitVaultLoader()
+        let loaded = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: nil)
+        let existing = try XCTUnwrap(loaded.entries.first)
+
+        _ = try await loader.updateEntry(
+            id: existing.id,
+            form: VaultEntryForm(
+                title: "Version 2",
+                username: "user-v2",
+                password: "pass-v2",
+                url: "https://v2.local",
+                notes: "notes-v2"
+            )
+        )
+
+        let afterSecondUpdate = try await loader.updateEntry(
+            id: existing.id,
+            form: VaultEntryForm(
+                title: "Version 3",
+                username: "user-v3",
+                password: "pass-v3",
+                url: "https://v3.local",
+                notes: "notes-v3"
+            )
+        )
+        let current = try XCTUnwrap(afterSecondUpdate.entries.first(where: { $0.id == existing.id }))
+        XCTAssertEqual(current.history.count, 2)
+        XCTAssertEqual(current.history.first?.title, "Version 2")
+
+        let revertedVault = try await loader.revertEntry(id: existing.id, toHistoryRevisionAt: 0)
+        let revertedEntry = try XCTUnwrap(revertedVault.entries.first(where: { $0.id == existing.id }))
+        XCTAssertEqual(revertedEntry.title, "Version 2")
+        XCTAssertEqual(revertedEntry.username, "user-v2")
+        XCTAssertEqual(revertedEntry.url?.absoluteString, "https://v2.local")
     }
 
     func testCreateGroupAndSubgroupPersistToDisk() async throws {

@@ -24,6 +24,9 @@ private struct WindowAccessorView: NSViewRepresentable {
 public struct RootView: View {
     @Bindable private var viewModel: AppViewModel
     @State private var masterPassword: String = ""
+    @State private var revealMasterPassword: Bool = false
+    @State private var useKeyFileForUnlock: Bool = false
+    @State private var rememberDatabaseSelection: Bool = true
     @State private var activityMonitorToken: Any?
     @State private var preferBiometricOnlyUnlock: Bool = false
     @FocusState private var isMasterPasswordFocused: Bool
@@ -38,6 +41,9 @@ public struct RootView: View {
             case .loaded(let vault):
                 VaultBrowserView(
                     vault: vault,
+                    favoriteEntryIDs: viewModel.favoriteEntryIDs,
+                    recentViewedEntryIDs: viewModel.recentViewedEntryIDs,
+                    includeSubgroupEntries: viewModel.includeSubgroupEntriesInGroupView,
                     onCreateGroup: { parentPath, title, iconID in
                         try await viewModel.createGroup(inParentPath: parentPath, title: title, iconID: iconID)
                     },
@@ -55,6 +61,18 @@ public struct RootView: View {
                     },
                     onDeleteEntry: { id in
                         try await viewModel.deleteEntry(id: id)
+                    },
+                    onRestoreEntry: { id in
+                        try await viewModel.restoreEntry(id: id)
+                    },
+                    onRevertEntry: { id, index in
+                        try await viewModel.revertEntry(id: id, toHistoryRevisionAt: index)
+                    },
+                    onToggleFavorite: { id in
+                        viewModel.toggleFavorite(entryID: id)
+                    },
+                    onEntryViewed: { id in
+                        viewModel.markEntryViewed(id)
                     },
                     onLockVault: {
                         NotificationCenter.default.post(name: AppCommand.lockVault, object: nil)
@@ -128,15 +146,20 @@ public struct RootView: View {
             case .loading:
                 break
             }
+            applyWindowLayout(for: newState)
         }
         .onChange(of: viewModel.showDockIcon) { _, showDockIcon in
             if !showDockIcon {
                 preferBiometricOnlyUnlock = false
             }
         }
+        .onChange(of: viewModel.selectedKeyFileURL) { _, selectedKeyFileURL in
+            useKeyFileForUnlock = selectedKeyFileURL != nil
+        }
         .background(
             WindowAccessorView { window in
                 MainWindowStore.shared.register(window: window)
+                applyWindowLayout(for: viewModel.loadState)
             }
         )
         .frame(
@@ -149,35 +172,215 @@ public struct RootView: View {
 
     @ViewBuilder
     private func unlockView(statusMessage: String? = nil, isError: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            if !viewModel.recentVaults.isEmpty {
-                recentVaultsSection
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Spacer()
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.95), Color.blue.opacity(0.78)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 72, height: 72)
+                            .shadow(color: .blue.opacity(0.24), radius: 10, y: 4)
+                        Image(systemName: "lock")
+                            .font(.system(size: 30, weight: .regular))
+                            .foregroundStyle(.white)
+                    }
+                    Spacer()
+                }
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Database Location")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        selectFile()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "externaldrive.badge.checkmark")
+                                .foregroundStyle(.blue)
+                            Text(viewModel.selectedVaultURL?.path(percentEncoded: false) ?? "Select .kdbx file")
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .foregroundStyle(viewModel.selectedVaultURL == nil ? .secondary : .primary)
+                            Spacer(minLength: 8)
+                            Image(systemName: "folder")
+                                .foregroundStyle(.secondary)
+                        }
+                        .keemacBoxedField()
+                    }
+                    .buttonStyle(.plain)
+                    .hoverHighlight()
+
+                    if !viewModel.recentVaults.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(viewModel.recentVaults) { recentVault in
+                                    Button(recentVault.title) {
+                                        selectRecentVault(recentVault)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .lineLimit(1)
+                                    .help(recentVault.vaultURL.path(percentEncoded: false))
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Master Password")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "key")
+                            .foregroundStyle(.secondary)
+
+                        Group {
+                            if revealMasterPassword {
+                                TextField("Enter password", text: $masterPassword)
+                                    .focused($isMasterPasswordFocused)
+                            } else {
+                                SecureField("Enter password", text: $masterPassword)
+                                    .focused($isMasterPasswordFocused)
+                            }
+                        }
+                        .textFieldStyle(.plain)
+                        .onSubmit {
+                            unlockVault()
+                        }
+
+                        Button {
+                            revealMasterPassword.toggle()
+                        } label: {
+                            Image(systemName: revealMasterPassword ? "eye.slash" : "eye")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(revealMasterPassword ? "Hide password" : "Reveal password")
+                        .hoverHighlight()
+                    }
+                    .keemacBoxedField()
+                }
+
+                Toggle("Use Key File", isOn: $useKeyFileForUnlock)
+                    .toggleStyle(.checkbox)
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: useKeyFileForUnlock) { _, isEnabled in
+                        if !isEnabled {
+                            viewModel.selectKeyFile(url: nil)
+                        }
+                    }
+
+                if useKeyFileForUnlock {
+                    HStack(spacing: 8) {
+                        Button {
+                            selectKeyFile()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "key.fill")
+                                    .foregroundStyle(.blue)
+                                Text(viewModel.selectedKeyFileURL?.path(percentEncoded: false) ?? "Select key file")
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .foregroundStyle(viewModel.selectedKeyFileURL == nil ? .secondary : .primary)
+                                Spacer(minLength: 0)
+                            }
+                            .keemacBoxedField()
+                        }
+                        .buttonStyle(.plain)
+                        .hoverHighlight()
+
+                        if viewModel.selectedKeyFileURL != nil {
+                            Button {
+                                viewModel.selectKeyFile(url: nil)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear key file")
+                            .hoverHighlight(tint: .red)
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Toggle("Remember Database", isOn: $rememberDatabaseSelection)
+                        .toggleStyle(.checkbox)
+                        .font(.callout)
+                        .disabled(true)
+                        .opacity(0.95)
+
+                    Spacer()
+
+                    if canUseBiometricUnlock {
+                        Button {
+                            Task {
+                                await viewModel.unlockWithBiometrics()
+                            }
+                        } label: {
+                            Image(systemName: "touchid")
+                                .font(.system(size: 18, weight: .regular))
+                                .foregroundStyle(.blue)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    Circle()
+                                        .fill(Color(nsColor: .controlBackgroundColor))
+                                )
+                                .overlay(
+                                    Circle().strokeBorder(.quaternary)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open by Touch ID")
+                        .disabled(isLoading || viewModel.selectedVaultURL == nil)
+                        .hoverHighlight()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    unlockVault()
+                } label: {
+                    Text("Unlock Database")
+                        .frame(maxWidth: .infinity)
+                }
+                .keemacPrimaryActionButton()
+                .frame(maxWidth: .infinity)
+                .keyboardShortcut(.defaultAction)
+                .disabled(viewModel.selectedVaultURL == nil || (masterPassword.isEmpty && viewModel.selectedKeyFileURL == nil) || isLoading)
+
+                if let statusMessage, !statusMessage.isEmpty {
+                    statusBanner(statusMessage: statusMessage, isError: isError)
+                }
             }
-            controlsSection
-            if let statusMessage, !statusMessage.isEmpty {
-                statusBanner(statusMessage: statusMessage, isError: isError)
-            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 18)
+            .frame(width: 460)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 0)
         }
-        .padding(20)
-        .frame(width: 760)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.separator.opacity(0.35))
-        )
-        .padding(20)
-        .background(
-            LinearGradient(
-                colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .controlBackgroundColor)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            useKeyFileForUnlock = viewModel.selectedKeyFileURL != nil
             isMasterPasswordFocused = true
         }
     }
@@ -192,220 +395,106 @@ public struct RootView: View {
 
     @ViewBuilder
     private func biometricUnlockView(statusMessage: String? = nil, isError: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("KeeMac")
-                .font(.largeTitle.bold())
+        let touchIDEnabledForVault = viewModel.touchIDEnabledForSelectedVault
+        let touchIDActionAvailable = canUseBiometricUnlock && touchIDEnabledForVault && !isLoading
 
-            Label(viewModel.selectedVaultURL?.lastPathComponent ?? "Saved Vault", systemImage: "externaldrive.fill")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+        VStack {
+            VStack(spacing: 14) {
+                ZStack(alignment: .bottomTrailing) {
+                    Image(systemName: "externaldrive.fill")
+                        .font(.system(size: 54, weight: .regular))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "lock.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .background(
+                            Circle()
+                                .fill(Color(nsColor: .windowBackgroundColor))
+                        )
+                        .offset(x: 2, y: 2)
+                }
+                .padding(.top, 8)
 
-            HStack(spacing: 10) {
+                VStack(spacing: 8) {
+                    Text("\(viewModel.selectedVaultURL?.lastPathComponent ?? "Saved Vault") is Locked")
+                        .font(.title2.weight(.semibold))
+                        .multilineTextAlignment(.center)
+
+                    Text(lockedScreenSubtitle(statusMessage: statusMessage, isError: isError))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
                 Button {
+                    guard touchIDActionAvailable else {
+                        return
+                    }
                     Task {
                         await viewModel.unlockWithBiometrics()
                     }
                 } label: {
-                    Label("Unlock with Touch ID", systemImage: "touchid")
+                    Image(systemName: "touchid")
+                        .font(.system(size: 32, weight: .regular))
+                        .foregroundStyle(.blue)
+                        .frame(width: 56, height: 56)
+                        .background(
+                            Circle()
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                        .overlay(
+                            Circle().strokeBorder(.quaternary)
+                        )
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .disabled(isLoading)
+                .buttonStyle(.plain)
                 .hoverHighlight()
+                .keyboardShortcut(.defaultAction)
+                .disabled(!touchIDActionAvailable)
 
-                Button("Choose Different Vault") {
+                Text(touchIDActionLabel(touchIDEnabledForVault: touchIDEnabledForVault))
+                    .font(.headline)
+                    .foregroundStyle(touchIDEnabledForVault ? .primary : .secondary)
+
+                Button("Use Password...") {
+                    preferBiometricOnlyUnlock = false
+                    isMasterPasswordFocused = true
+                }
+                .keemacSecondaryActionButton(minWidth: 220)
+                .frame(maxWidth: 220)
+
+                Button("Open other database") {
                     preferBiometricOnlyUnlock = false
                     viewModel.disableBiometricUnlockScreen()
                     selectFile()
                 }
-                .buttonStyle(.bordered)
-                .hoverHighlight()
-            }
+                .buttonStyle(.link)
+                .hoverHighlight(cornerRadius: 6)
 
-            if let statusMessage, !statusMessage.isEmpty {
-                statusBanner(statusMessage: statusMessage, isError: isError)
+                if let statusMessage, !statusMessage.isEmpty, isError {
+                    statusBanner(statusMessage: statusMessage, isError: true)
+                        .padding(.top, 2)
+                }
             }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.separator.opacity(0.35))
+            )
         }
+        .frame(width: 460)
         .padding(24)
-        .frame(width: 540)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.separator.opacity(0.35))
-        )
-        .padding(20)
         .background(
             LinearGradient(
-                colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .controlBackgroundColor)],
+                colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .underPageBackgroundColor)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         )
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("KeeMac")
-                .font(.largeTitle.bold())
-            Text("Unlock your vault")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var controlsSection: some View {
-        VStack(spacing: 0) {
-            fileChooserRow(
-                title: "Database",
-                displayedPath: viewModel.selectedVaultURL?.path(percentEncoded: false),
-                placeholder: "Select .kdbx file",
-                symbol: "externaldrive.fill",
-                actionTitle: "Browse",
-                action: selectFile,
-                clearAction: viewModel.selectedVaultURL == nil ? nil : {
-                    viewModel.clearVaultSelection()
-                }
-            )
-
-            Divider()
-                .padding(.horizontal, 14)
-
-            fileChooserRow(
-                title: "Key File",
-                displayedPath: viewModel.selectedKeyFileURL?.path(percentEncoded: false),
-                placeholder: "Optional",
-                symbol: "key.fill",
-                actionTitle: "Browse",
-                action: selectKeyFile,
-                clearAction: viewModel.selectedKeyFileURL == nil ? nil : {
-                    viewModel.selectKeyFile(url: nil)
-                }
-            )
-
-            Divider()
-                .padding(.horizontal, 14)
-
-            passwordSection
-                .padding(14)
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.84))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.separator.opacity(0.2))
-        )
-    }
-
-    private var recentVaultsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Recent Vaults")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                ForEach(viewModel.recentVaults) { recentVault in
-                    Button(recentVault.title) {
-                        selectRecentVault(recentVault)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .lineLimit(1)
-                    .help(recentVault.vaultURL.path(percentEncoded: false))
-                    .hoverHighlight()
-                }
-            }
-        }
-    }
-
-    private func fileChooserRow(
-        title: String,
-        displayedPath: String?,
-        placeholder: String,
-        symbol: String,
-        actionTitle: String,
-        action: @escaping () -> Void,
-        clearAction: (() -> Void)?
-    ) -> some View {
-        HStack(spacing: 10) {
-            Label(title, systemImage: symbol)
-                .font(.headline)
-                .frame(width: 110, alignment: .leading)
-
-            Text(displayedPath ?? placeholder)
-                .font(.callout.monospaced())
-                .foregroundStyle(displayedPath == nil ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button(actionTitle) {
-                action()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .hoverHighlight()
-
-            if let clearAction {
-                Button {
-                    clearAction()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear \(title.lowercased())")
-                .hoverHighlight()
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var passwordSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Master Password", systemImage: "lock.fill")
-                .font(.headline)
-
-            HStack(spacing: 10) {
-                SecureField("Enter your password", text: $masterPassword)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.large)
-                    .focused($isMasterPasswordFocused)
-                    .onSubmit {
-                        unlockVault()
-                    }
-
-                Button("Unlock Vault") {
-                    unlockVault()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .disabled(viewModel.selectedVaultURL == nil || (masterPassword.isEmpty && viewModel.selectedKeyFileURL == nil) || isLoading)
-                .hoverHighlight()
-
-                if canUseBiometricUnlock {
-                    Button {
-                        Task {
-                            await viewModel.unlockWithBiometrics()
-                        }
-                    } label: {
-                        Label("Open by Touch ID", systemImage: "touchid")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(isLoading || viewModel.selectedVaultURL == nil)
-                    .hoverHighlight()
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -427,35 +516,52 @@ public struct RootView: View {
     }
 
     private var shouldShowBiometricOnlyUnlock: Bool {
-        preferBiometricOnlyUnlock && canUseBiometricUnlock
+        preferBiometricOnlyUnlock && viewModel.selectedVaultURL != nil
+    }
+
+    private func touchIDActionLabel(touchIDEnabledForVault: Bool) -> String {
+        if !touchIDEnabledForVault {
+            return "Touch ID is disabled for this vault"
+        }
+        if !canUseBiometricUnlock {
+            return "Touch ID is not configured for this vault"
+        }
+        return "Touch ID for \"KeeMac\""
+    }
+
+    private func lockedScreenSubtitle(statusMessage: String?, isError: Bool) -> String {
+        if isError, let statusMessage, !statusMessage.isEmpty {
+            return statusMessage
+        }
+        return "This database was locked. Use Touch ID to unlock it quickly."
     }
 
     private var minimumWindowWidth: CGFloat {
         if case .loaded = viewModel.loadState {
             return 980
         }
-        return 760
+        return 460
     }
 
     private var idealWindowWidth: CGFloat {
         if case .loaded = viewModel.loadState {
             return 1100
         }
-        return 800
+        return 480
     }
 
     private var minimumWindowHeight: CGFloat {
         if case .loaded = viewModel.loadState {
             return 680
         }
-        return 380
+        return 500
     }
 
     private var idealWindowHeight: CGFloat {
         if case .loaded = viewModel.loadState {
             return 760
         }
-        return 420
+        return 540
     }
 
     private func selectFile() {
@@ -483,6 +589,7 @@ public struct RootView: View {
 
         if panel.runModal() == .OK, let selectedURL = panel.url {
             viewModel.selectKeyFile(url: selectedURL)
+            useKeyFileForUnlock = true
             isMasterPasswordFocused = true
         }
     }
@@ -497,6 +604,7 @@ public struct RootView: View {
 
     private func selectRecentVault(_ recentVault: AppViewModel.RecentVault) {
         viewModel.selectRecentVault(recentVault)
+        useKeyFileForUnlock = recentVault.keyFileURL != nil
         isMasterPasswordFocused = true
     }
 
@@ -519,6 +627,51 @@ public struct RootView: View {
         }
         NSEvent.removeMonitor(activityMonitorToken)
         self.activityMonitorToken = nil
+    }
+
+    private func applyWindowLayout(for state: AppViewModel.LoadState) {
+        guard let window = MainWindowStore.shared.window else {
+            return
+        }
+
+        switch state {
+        case .loaded(let vault):
+            window.title = vault.summary.fileName
+            window.titleVisibility = .hidden
+        case .idle, .loading, .locked, .failed:
+            window.title = "KeeMac"
+            window.titleVisibility = .visible
+        }
+
+        switch state {
+        case .loaded:
+            let minSize = NSSize(width: 980, height: 680)
+            window.minSize = minSize
+            window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
+            let currentSize = window.contentRect(forFrameRect: window.frame).size
+            if currentSize.width < minSize.width || currentSize.height < minSize.height {
+                let targetSize = NSSize(
+                    width: max(currentSize.width, 1100),
+                    height: max(currentSize.height, 760)
+                )
+                window.setContentSize(targetSize)
+            }
+
+        case .idle, .loading, .locked, .failed:
+            let minSize = NSSize(width: 460, height: 500)
+            let maxSize = NSSize(width: 520, height: 620)
+            let targetSize = NSSize(width: 460, height: 540)
+
+            window.minSize = minSize
+            window.maxSize = maxSize
+
+            let currentSize = window.contentRect(forFrameRect: window.frame).size
+            let shouldResize = abs(currentSize.width - targetSize.width) > 1 || abs(currentSize.height - targetSize.height) > 1
+            if shouldResize {
+                window.setContentSize(targetSize)
+            }
+        }
     }
 
 }

@@ -7,14 +7,14 @@ struct HoverHighlightModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .padding(2)
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(isHovered ? tint.opacity(0.14) : Color.clear)
+                    .fill(isHovered ? tint.opacity(0.08) : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(isHovered ? tint.opacity(0.32) : Color.clear, lineWidth: 1)
+                    .stroke(isHovered ? tint.opacity(0.14) : Color.clear, lineWidth: 1)
             )
             .animation(.easeOut(duration: 0.12), value: isHovered)
             .onHover { hovering in

@@ -5,6 +5,13 @@ import Domain
 import SwiftUI
 
 public struct VaultBrowserView: View {
+    private let minSidebarWidth: CGFloat = 220
+    private let maxSidebarWidth: CGFloat = 320
+    private let minEntriesWidth: CGFloat = 260
+    private let maxEntriesWidth: CGFloat = 420
+    private let minDetailWidth: CGFloat = 360
+    private let dividerWidth: CGFloat = 1
+
     private struct GroupTreeNode: Identifiable, Hashable {
         let id: String
         let title: String
@@ -14,276 +21,540 @@ public struct VaultBrowserView: View {
         let children: [GroupTreeNode]?
     }
 
+    private enum LibrarySelection: Hashable {
+        case allItems
+        case favorites
+        case recent
+        case trash
+        case group(String)
+
+        var id: String {
+            switch self {
+            case .allItems:
+                return "library.all"
+            case .favorites:
+                return "library.favorites"
+            case .recent:
+                return "library.recent"
+            case .trash:
+                return "library.trash"
+            case .group(let path):
+                return "group.\(path)"
+            }
+        }
+
+        init?(id: String) {
+            switch id {
+            case "library.all":
+                self = .allItems
+            case "library.favorites":
+                self = .favorites
+            case "library.recent":
+                self = .recent
+            case "library.trash":
+                self = .trash
+            default:
+                guard id.hasPrefix("group.") else {
+                    return nil
+                }
+                self = .group(String(id.dropFirst("group.".count)))
+            }
+        }
+    }
+
     public let vault: LoadedVault
+    public let favoriteEntryIDs: Set<UUID>
+    public let recentViewedEntryIDs: [UUID]
+    public let includeSubgroupEntries: Bool
     private let onCreateGroup: @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?) async throws -> Void
     private let onUpdateGroup: @Sendable (_ path: String, _ title: String, _ iconID: Int?) async throws -> Void
     private let onDeleteGroup: @Sendable (_ path: String) async throws -> Void
     private let onCreateEntry: @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void
     private let onUpdateEntry: @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void
     private let onDeleteEntry: @Sendable (_ id: UUID) async throws -> Void
+    private let onRestoreEntry: @Sendable (_ id: UUID) async throws -> Void
+    private let onRevertEntry: @Sendable (_ id: UUID, _ historyIndex: Int) async throws -> Void
+    private let onToggleFavorite: (UUID) -> Void
+    private let onEntryViewed: (UUID) -> Void
     private let onLockVault: () -> Void
+    @Environment(\.openSettings) private var openSettings
 
     @State private var searchText: String = ""
-    @State private var selectedGroupPath: String?
+    @State private var selectedSidebarItemID: String? = LibrarySelection.allItems.id
     @State private var selectedEntryID: VaultEntry.ID?
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var editorMode: EntryEditorMode?
     @State private var groupEditorMode: GroupEditorMode?
     @State private var deletingEntry: VaultEntry?
     @State private var deletingGroupPath: String?
+    @State private var historyEntry: VaultEntry?
     @State private var operationErrorMessage: String?
     @State private var isPerformingMutation: Bool = false
+    @State private var sidebarWidth: CGFloat = 250
+    @State private var entriesWidth: CGFloat = 330
+    @State private var sidebarDragStartWidth: CGFloat?
+    @State private var entriesDragStartWidth: CGFloat?
 
     public init(
         vault: LoadedVault,
+        favoriteEntryIDs: Set<UUID>,
+        recentViewedEntryIDs: [UUID],
+        includeSubgroupEntries: Bool,
         onCreateGroup: @escaping @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?) async throws -> Void,
         onUpdateGroup: @escaping @Sendable (_ path: String, _ title: String, _ iconID: Int?) async throws -> Void,
         onDeleteGroup: @escaping @Sendable (_ path: String) async throws -> Void,
         onCreateEntry: @escaping @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void,
         onUpdateEntry: @escaping @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void,
         onDeleteEntry: @escaping @Sendable (_ id: UUID) async throws -> Void,
+        onRestoreEntry: @escaping @Sendable (_ id: UUID) async throws -> Void,
+        onRevertEntry: @escaping @Sendable (_ id: UUID, _ historyIndex: Int) async throws -> Void,
+        onToggleFavorite: @escaping (UUID) -> Void,
+        onEntryViewed: @escaping (UUID) -> Void,
         onLockVault: @escaping () -> Void
     ) {
         self.vault = vault
+        self.favoriteEntryIDs = favoriteEntryIDs
+        self.recentViewedEntryIDs = recentViewedEntryIDs
+        self.includeSubgroupEntries = includeSubgroupEntries
         self.onCreateGroup = onCreateGroup
         self.onUpdateGroup = onUpdateGroup
         self.onDeleteGroup = onDeleteGroup
         self.onCreateEntry = onCreateEntry
         self.onUpdateEntry = onUpdateEntry
         self.onDeleteEntry = onDeleteEntry
+        self.onRestoreEntry = onRestoreEntry
+        self.onRevertEntry = onRevertEntry
+        self.onToggleFavorite = onToggleFavorite
+        self.onEntryViewed = onEntryViewed
         self.onLockVault = onLockVault
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
-        } content: {
-            entriesList
-                .navigationSplitViewColumnWidth(min: 300, ideal: 380, max: 520)
-        } detail: {
-            entryDetail
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                TextField("Search title, username, URL", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 340)
-                    .controlSize(.regular)
+        contentView
+            .sheet(item: $editorMode) { mode in
+                VaultEntryEditorSheet(
+                    mode: mode,
+                    initialForm: mode.initialForm,
+                    isSaving: isPerformingMutation
+                ) { form in
+                    await performEditorAction(mode: mode, form: form)
+                }
             }
-
-            ToolbarItem(placement: .primaryAction) {
-                Button("Lock Vault") {
-                    onLockVault()
+            .sheet(item: $groupEditorMode) { mode in
+                GroupEditorSheet(mode: mode, isSaving: isPerformingMutation) { title, iconID in
+                    await performGroupEditorAction(mode: mode, title: title, iconID: iconID)
+                }
+            }
+            .sheet(item: $historyEntry) { entry in
+                VaultEntryHistorySheet(entry: entry) { revisionIndex in
+                    await performRevert(entryID: entry.id, historyIndex: revisionIndex)
+                }
+            }
+            .alert("Delete Group?", isPresented: Binding(get: {
+                deletingGroupPath != nil
+            }, set: { isPresented in
+                if !isPresented {
+                    deletingGroupPath = nil
+                }
+            })) {
+                Button("Delete", role: .destructive) {
+                    guard let deletingGroupPath else {
+                        return
+                    }
+                    Task {
+                        await performDeleteGroup(deletingGroupPath)
+                    }
+                }
+                .hoverHighlight(tint: .red)
+                Button("Cancel", role: .cancel) {
+                    deletingGroupPath = nil
                 }
                 .hoverHighlight()
+            } message: {
+                Text("The selected group and all nested entries/subgroups will be moved to Trash or removed, depending on vault settings.")
             }
-        }
-        .navigationSplitViewStyle(.balanced)
-        .onAppear {
-            ensureValidSelection()
-        }
-        .onChange(of: vault.summary.groupCount) { _, _ in
-            ensureValidSelection()
-        }
-        .onChange(of: vault.summary.entryCount) { _, _ in
-            ensureValidSelection()
-        }
-        .onChange(of: selectedGroupPath) { _, _ in
-            ensureValidSelection()
-        }
-        .onChange(of: searchText) { _, _ in
-            ensureValidSelection()
-        }
-        .sheet(item: $editorMode) { mode in
-            VaultEntryEditorSheet(
-                mode: mode,
-                initialForm: mode.initialForm,
-                isSaving: isPerformingMutation
-            ) { form in
-                await performEditorAction(mode: mode, form: form)
+            .alert("Delete Entry?", isPresented: Binding(get: {
+                deletingEntry != nil
+            }, set: { isPresented in
+                if !isPresented {
+                    deletingEntry = nil
+                }
+            })) {
+                Button("Delete", role: .destructive) {
+                    guard let deletingEntry else {
+                        return
+                    }
+                    Task {
+                        await performDelete(deletingEntry.id)
+                    }
+                }
+                .hoverHighlight(tint: .red)
+                Button("Cancel", role: .cancel) {
+                    deletingEntry = nil
+                }
+                .hoverHighlight()
+            } message: {
+                Text("This operation is saved immediately and cannot be undone in KeeMac.")
             }
-        }
-        .sheet(item: $groupEditorMode) { mode in
-            GroupEditorSheet(mode: mode, isSaving: isPerformingMutation) { title, iconID in
-                await performGroupEditorAction(mode: mode, title: title, iconID: iconID)
+            .alert("Save Error", isPresented: Binding(get: {
+                operationErrorMessage != nil
+            }, set: { isPresented in
+                if !isPresented {
+                    operationErrorMessage = nil
+                }
+            })) {
+                Button("OK", role: .cancel) {
+                    operationErrorMessage = nil
+                }
+                .hoverHighlight()
+            } message: {
+                Text(operationErrorMessage ?? "Unknown error")
             }
-        }
-        .alert("Delete Group?", isPresented: Binding(get: {
-            deletingGroupPath != nil
-        }, set: { isPresented in
-            if !isPresented {
-                deletingGroupPath = nil
+    }
+
+    private var contentView: AnyView {
+        AnyView(
+            baseContentView
+                .toolbar(removing: .title)
+        )
+    }
+
+    private var baseContentView: some View {
+        splitView
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 10) {
+                        Button {
+                            editorMode = .create(groupPath: selectedGroupPathForCreation)
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .help("New entry")
+                        .disabled(isPerformingMutation)
+
+                        Button {
+                            openSettings()
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                        }
+                        .help("Preferences")
+
+                        Button {
+                            onLockVault()
+                        } label: {
+                            Image(systemName: "lock")
+                        }
+                        .help("Lock vault")
+                    }
+                }
             }
-        })) {
-            Button("Delete", role: .destructive) {
-                guard let deletingGroupPath else {
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
+            .toolbarRole(.editor)
+            .tint(.blue)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .onAppear {
+                ensureValidSelection()
+            }
+            .onChange(of: vault.summary.groupCount) { _, _ in
+                ensureValidSelection()
+            }
+            .onChange(of: vault.summary.entryCount) { _, _ in
+                ensureValidSelection()
+            }
+            .onChange(of: selectedSidebarItemID) { _, _ in
+                ensureValidSelection()
+            }
+            .onChange(of: searchText) { _, _ in
+                ensureValidSelection()
+            }
+            .onChange(of: selectedEntryID) { _, newValue in
+                guard let newValue else {
                     return
                 }
-                Task {
-                    await performDeleteGroup(deletingGroupPath)
-                }
+                onEntryViewed(newValue)
             }
-            .hoverHighlight(tint: .red)
-            Button("Cancel", role: .cancel) {
-                deletingGroupPath = nil
+    }
+
+    private var splitView: some View {
+        GeometryReader { geometry in
+            let layout = columnLayout(for: geometry.size.width)
+
+            HStack(spacing: 0) {
+                sidebar
+                    .frame(width: layout.sidebarWidth)
+
+                resizeDivider
+                    .gesture(sidebarResizeGesture(totalWidth: geometry.size.width, currentEntriesWidth: layout.entriesWidth))
+
+                entriesList
+                    .frame(width: layout.entriesWidth)
+
+                resizeDivider
+                    .gesture(entriesResizeGesture(totalWidth: geometry.size.width, currentSidebarWidth: layout.sidebarWidth))
+
+                entryDetail
+                    .frame(width: layout.detailWidth)
+                    .frame(maxHeight: .infinity)
             }
-            .hoverHighlight()
-        } message: {
-            Text("The selected group and all nested entries/subgroups will be moved to Trash or removed, depending on vault settings.")
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .alert("Delete Entry?", isPresented: Binding(get: {
-            deletingEntry != nil
-        }, set: { isPresented in
-            if !isPresented {
-                deletingEntry = nil
-            }
-        })) {
-            Button("Delete", role: .destructive) {
-                guard let deletingEntry else {
-                    return
+    }
+
+    private var resizeDivider: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor).opacity(0.7))
+            .frame(width: dividerWidth)
+            .overlay(
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+            )
+    }
+
+    private func columnLayout(for totalWidth: CGFloat) -> (sidebarWidth: CGFloat, entriesWidth: CGFloat, detailWidth: CGFloat) {
+        let usableWidth = max(totalWidth - (dividerWidth * 2), minSidebarWidth + minEntriesWidth + minDetailWidth)
+
+        let sidebarMax = min(maxSidebarWidth, usableWidth - minEntriesWidth - minDetailWidth)
+        let resolvedSidebar = clamp(sidebarWidth, minSidebarWidth, sidebarMax)
+
+        let entriesMax = min(maxEntriesWidth, usableWidth - resolvedSidebar - minDetailWidth)
+        let resolvedEntries = clamp(entriesWidth, minEntriesWidth, entriesMax)
+
+        let resolvedDetail = max(minDetailWidth, usableWidth - resolvedSidebar - resolvedEntries)
+        return (resolvedSidebar, resolvedEntries, resolvedDetail)
+    }
+
+    private func sidebarResizeGesture(totalWidth: CGFloat, currentEntriesWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if sidebarDragStartWidth == nil {
+                    sidebarDragStartWidth = columnLayout(for: totalWidth).sidebarWidth
                 }
-                Task {
-                    await performDelete(deletingEntry.id)
+
+                let startWidth = sidebarDragStartWidth ?? columnLayout(for: totalWidth).sidebarWidth
+                let usableWidth = max(totalWidth - (dividerWidth * 2), minSidebarWidth + minEntriesWidth + minDetailWidth)
+                let maxWidth = min(maxSidebarWidth, usableWidth - currentEntriesWidth - minDetailWidth)
+                sidebarWidth = clamp(startWidth + value.translation.width, minSidebarWidth, maxWidth)
+            }
+            .onEnded { _ in
+                sidebarDragStartWidth = nil
+            }
+    }
+
+    private func entriesResizeGesture(totalWidth: CGFloat, currentSidebarWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if entriesDragStartWidth == nil {
+                    entriesDragStartWidth = columnLayout(for: totalWidth).entriesWidth
                 }
+
+                let startWidth = entriesDragStartWidth ?? columnLayout(for: totalWidth).entriesWidth
+                let usableWidth = max(totalWidth - (dividerWidth * 2), minSidebarWidth + minEntriesWidth + minDetailWidth)
+                let maxWidth = min(maxEntriesWidth, usableWidth - currentSidebarWidth - minDetailWidth)
+                entriesWidth = clamp(startWidth + value.translation.width, minEntriesWidth, maxWidth)
             }
-            .hoverHighlight(tint: .red)
-            Button("Cancel", role: .cancel) {
-                deletingEntry = nil
+            .onEnded { _ in
+                entriesDragStartWidth = nil
             }
-            .hoverHighlight()
-        } message: {
-            Text("This operation is saved immediately and cannot be undone in KeeMac.")
-        }
-        .alert("Save Error", isPresented: Binding(get: {
-            operationErrorMessage != nil
-        }, set: { isPresented in
-            if !isPresented {
-                operationErrorMessage = nil
-            }
-        })) {
-            Button("OK", role: .cancel) {
-                operationErrorMessage = nil
-            }
-            .hoverHighlight()
-        } message: {
-            Text(operationErrorMessage ?? "Unknown error")
-        }
+    }
+
+    private func clamp(_ value: CGFloat, _ minimum: CGFloat, _ maximum: CGFloat) -> CGFloat {
+        min(max(value, minimum), maximum)
     }
 
     private var sidebar: some View {
-        List(selection: $selectedGroupPath) {
-            Text("All Entries")
-                .tag(Optional<String>.none)
-                .contextMenu {
-                    Button("New Entry") {
-                        editorMode = .create(groupPath: nil)
-                    }
+        List {
+            Section {
+                sidebarStaticRow(
+                    title: "All Items",
+                    symbol: "shippingbox",
+                    selection: .allItems
+                )
+                    .contextMenu {
+                        Button("New Entry") {
+                            editorMode = .create(groupPath: nil)
+                        }
 
-                    Divider()
+                        Divider()
 
-                    Button("New Group") {
-                        groupEditorMode = .create(parentPath: nil)
-                    }
-                }
-
-            OutlineGroup(groupTree, children: \.children) { node in
-                HStack(spacing: 8) {
-                    EntryIconView(
-                        iconPNGData: node.iconPNGData,
-                        iconID: node.iconID,
-                        size: 14,
-                        fallbackSystemImage: "folder.fill"
-                    )
-                    Text(node.title)
-                }
-                .tag(Optional(node.path))
-                .contextMenu {
-                    Button("New Entry") {
-                        editorMode = .create(groupPath: node.path)
-                    }
-
-                    Divider()
-
-                    Button("New Subgroup") {
-                        groupEditorMode = .create(parentPath: node.path)
-                    }
-
-                    Button("Edit Group") {
-                        if let group = vault.groups.first(where: { $0.path == node.path }) {
-                            groupEditorMode = .edit(path: group.path, title: group.title, iconID: group.iconID)
+                        Button("New Group") {
+                            groupEditorMode = .create(parentPath: nil)
                         }
                     }
 
-                    Divider()
+                sidebarStaticRow(title: "Favorites", symbol: "star", selection: .favorites)
+                sidebarStaticRow(title: "Recent", symbol: "clock.arrow.circlepath", selection: .recent)
+                sidebarStaticRow(title: "Trash", symbol: "trash", selection: .trash)
+            } header: {
+                Text("Library")
+            }
 
-                    Button("Delete Group", role: .destructive) {
-                        deletingGroupPath = node.path
+            Section {
+                OutlineGroup(groupTree, children: \.children) { node in
+                    HStack(spacing: 10) {
+                        EntryIconView(
+                            iconPNGData: node.iconPNGData,
+                            iconID: node.iconID,
+                            size: 14,
+                            fallbackSystemImage: "folder.fill"
+                        )
+                        Text(node.title)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectSidebarItem(.group(node.path))
+                    }
+                    .listRowBackground(sidebarRowBackground(isSelected: currentLibrarySelection == .group(node.path)))
+                    .contextMenu {
+                        Button("New Entry") {
+                            editorMode = .create(groupPath: node.path)
+                        }
+
+                        Divider()
+
+                        Button("New Subgroup") {
+                            groupEditorMode = .create(parentPath: node.path)
+                        }
+
+                        Button("Edit Group") {
+                            if let group = vault.groups.first(where: { $0.path == node.path }) {
+                                groupEditorMode = .edit(path: group.path, title: group.title, iconID: group.iconID)
+                            }
+                        }
+
+                        Divider()
+
+                        Button("Delete Group", role: .destructive) {
+                            deletingGroupPath = node.path
+                        }
                     }
                 }
+            } header: {
+                Text("Folders")
             }
         }
-        .navigationTitle("Groups")
+        .listStyle(.sidebar)
+    }
+
+    private func sidebarStaticRow(title: String, symbol: String, selection: LibrarySelection) -> some View {
+        let isSelected = currentLibrarySelection == selection
+
+        return HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundStyle(isSelected ? .blue : .secondary)
+                .frame(width: 14, height: 14)
+            Text(title)
+                .font(.callout)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectSidebarItem(selection)
+        }
+        .listRowBackground(sidebarRowBackground(isSelected: isSelected))
+    }
+
+    @ViewBuilder
+    private func sidebarRowBackground(isSelected: Bool) -> some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.14))
+                .padding(.vertical, 1)
+        } else {
+            Color.clear
+        }
+    }
+
+    private func selectSidebarItem(_ selection: LibrarySelection) {
+        selectedSidebarItemID = selection.id
     }
 
     private var entriesList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Text("Entries")
-                    .font(.title3.weight(.semibold))
+        List(filteredEntries, selection: $selectedEntryID) { entry in
+            HStack(alignment: .top, spacing: 10) {
+                EntryIconView(
+                    iconPNGData: entry.iconPNGData,
+                    iconID: entry.iconID,
+                    size: 16,
+                    fallbackSystemImage: "key.fill"
+                )
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
 
-                Spacer()
-
-                Button {
-                    editorMode = .create(groupPath: selectedGroupPath)
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .help("New entry")
-                .disabled(isPerformingMutation)
-                .hoverHighlight()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Divider()
-
-            List(filteredEntries, selection: $selectedEntryID) { entry in
-                HStack(alignment: .top, spacing: 10) {
-                    EntryIconView(
-                        iconPNGData: entry.iconPNGData,
-                        iconID: entry.iconID,
-                        size: 18,
-                        fallbackSystemImage: "key.fill"
-                    )
-
-                    VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(entry.title)
                             .font(.headline)
+                            .lineLimit(1)
 
-                        HStack(spacing: 8) {
-                            if let username = entry.username, !username.isEmpty {
-                                Text(username)
-                            }
-
-                            if let host = entry.url?.host, !host.isEmpty {
-                                Text(host)
-                            }
+                        if favoriteEntryIDs.contains(entry.id) {
+                            Image(systemName: "star.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.yellow)
+                                .help("Favorite")
                         }
-                        .foregroundStyle(.secondary)
+
+                        if recentViewedEntryIDs.contains(entry.id) {
+                            Image(systemName: "clock.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .help("Viewed recently")
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    Text(entrySubtitle(entry))
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 4)
+            .contextMenu {
+                Button("Edit Entry") {
+                    editorMode = .edit(entry: entry)
+                }
+
+                Button(favoriteEntryIDs.contains(entry.id) ? "Remove from Favorites" : "Add to Favorites") {
+                    onToggleFavorite(entry.id)
+                }
+
+                Divider()
+
+                if entry.isTrashed {
+                    Button("Restore from Trash") {
+                        Task {
+                            await performRestore(entry.id)
+                        }
                     }
                 }
-                .padding(.vertical, 4)
-            }
-            .overlay {
-                if filteredEntries.isEmpty {
-                    entriesEmptyState
+
+                Button("Delete Entry", role: .destructive) {
+                    deletingEntry = entry
                 }
             }
         }
+        .listStyle(.plain)
+        .overlay {
+            if filteredEntries.isEmpty {
+                entriesEmptyState
+            }
+        }
+    }
+
+    private func entrySubtitle(_ entry: VaultEntry) -> String {
+        let username = entry.username?.isEmpty == false ? entry.username! : nil
+        let group = entry.groupPath.isEmpty ? nil : entry.groupPath
+        return [username, group].compactMap { $0 }.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -291,12 +562,13 @@ public struct VaultBrowserView: View {
         if let entry = selectedEntry {
             VaultEntryDetailView(
                 entry: entry,
+                onShowHistory: entry.history.isEmpty ? nil : {
+                    historyEntry = entry
+                },
                 onEdit: isPerformingMutation ? nil : {
                     editorMode = .edit(entry: entry)
                 },
-                onDelete: isPerformingMutation ? nil : {
-                    deletingEntry = entry
-                }
+                onDelete: nil
             )
         } else {
             ContentUnavailableView(
@@ -315,23 +587,57 @@ public struct VaultBrowserView: View {
     }
 
     private var filteredEntries: [VaultEntry] {
-        let byGroup = vault.entries.filter { entry in
-            guard let selectedGroupPath, !selectedGroupPath.isEmpty else {
-                return true
+        let entriesBySelection: [VaultEntry]
+        switch currentLibrarySelection {
+        case .allItems:
+            entriesBySelection = vault.entries
+                .filter { !$0.isTrashed }
+                .sorted { lhs, rhs in
+                    lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+        case .favorites:
+            entriesBySelection = vault.entries
+                .filter { favoriteEntryIDs.contains($0.id) && !$0.isTrashed }
+                .sorted { lhs, rhs in
+                    lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+        case .recent:
+            let entriesByID = Dictionary(uniqueKeysWithValues: vault.entries.map { ($0.id, $0) })
+            entriesBySelection = recentViewedEntryIDs.compactMap { id in
+                guard let entry = entriesByID[id], !entry.isTrashed else {
+                    return nil
+                }
+                return entry
             }
-            return entry.groupPath == selectedGroupPath || entry.groupPath.hasPrefix("\(selectedGroupPath).")
-        }
-        .sorted { lhs, rhs in
-            lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        case .trash:
+            entriesBySelection = vault.entries
+                .filter(\.isTrashed)
+                .sorted { lhs, rhs in
+                    lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+        case .group(let path):
+            entriesBySelection = vault.entries
+                .filter { entry in
+                    guard !entry.isTrashed else {
+                        return false
+                    }
+                    if includeSubgroupEntries {
+                        return entry.groupPath == path || entry.groupPath.hasPrefix("\(path).")
+                    }
+                    return entry.groupPath == path
+                }
+                .sorted { lhs, rhs in
+                    lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
         }
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            return byGroup
+            return entriesBySelection
         }
 
         let normalizedQuery = query.lowercased()
-        return byGroup.filter { entry in
+        return entriesBySelection.filter { entry in
             if entry.title.lowercased().contains(normalizedQuery) {
                 return true
             }
@@ -372,15 +678,22 @@ public struct VaultBrowserView: View {
     }
 
     private func ensureValidSelection() {
-        if let selectedGroupPath,
-           !vault.groups.contains(where: { $0.path == selectedGroupPath }) {
-            self.selectedGroupPath = nil
+        if case .group(let path) = currentLibrarySelection,
+           !vault.groups.contains(where: { $0.path == path }) {
+            selectedSidebarItemID = LibrarySelection.allItems.id
         }
 
         if let selectedEntryID, filteredEntries.contains(where: { $0.id == selectedEntryID }) {
             return
         }
         selectedEntryID = filteredEntries.first?.id
+    }
+
+    private var currentLibrarySelection: LibrarySelection {
+        guard let selectedSidebarItemID, let selection = LibrarySelection(id: selectedSidebarItemID) else {
+            return .allItems
+        }
+        return selection
     }
 
     private func performEditorAction(mode: EntryEditorMode, form: VaultEntryForm) async {
@@ -418,6 +731,35 @@ public struct VaultBrowserView: View {
         }
     }
 
+    private func performRestore(_ id: UUID) async {
+        guard !isPerformingMutation else {
+            return
+        }
+        isPerformingMutation = true
+        defer { isPerformingMutation = false }
+
+        do {
+            try await onRestoreEntry(id)
+        } catch {
+            operationErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func performRevert(entryID: UUID, historyIndex: Int) async {
+        guard !isPerformingMutation else {
+            return
+        }
+        isPerformingMutation = true
+        defer { isPerformingMutation = false }
+
+        do {
+            try await onRevertEntry(entryID, historyIndex)
+            historyEntry = nil
+        } catch {
+            operationErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     private func performGroupEditorAction(mode: GroupEditorMode, title: String, iconID: Int?) async {
         guard !isPerformingMutation else {
             return
@@ -431,8 +773,8 @@ public struct VaultBrowserView: View {
                 try await onCreateGroup(parentPath, title, iconID)
             case .edit(let path, _, _):
                 try await onUpdateGroup(path, title, iconID)
-                if selectedGroupPath == path {
-                    selectedGroupPath = nil
+                if currentLibrarySelection == .group(path) {
+                    selectedSidebarItemID = LibrarySelection.allItems.id
                 }
             }
             groupEditorMode = nil
@@ -450,13 +792,20 @@ public struct VaultBrowserView: View {
 
         do {
             try await onDeleteGroup(path)
-            if selectedGroupPath == path {
-                selectedGroupPath = nil
+            if currentLibrarySelection == .group(path) {
+                selectedSidebarItemID = LibrarySelection.allItems.id
             }
             deletingGroupPath = nil
         } catch {
             operationErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    private var selectedGroupPathForCreation: String? {
+        if case .group(let path) = currentLibrarySelection {
+            return path
+        }
+        return nil
     }
 
     private static func buildGroupTree(
@@ -671,8 +1020,27 @@ private enum EntryEditorMode: Identifiable {
                 notes: entry.notes ?? "",
                 iconID: entry.iconID,
                 customFields: customFields,
+                attachments: entry.attachments,
                 otp: otpForm
             )
+        }
+    }
+
+    var helperText: String {
+        switch self {
+        case .create:
+            return "Select an icon to quickly recognize this entry in the list."
+        case .edit:
+            return "Update icon and fields for this entry."
+        }
+    }
+
+    var groupPathHint: String? {
+        switch self {
+        case .create(let groupPath):
+            return groupPath
+        case .edit(let entry):
+            return entry.groupPath.isEmpty ? nil : entry.groupPath
         }
     }
 }
@@ -701,31 +1069,18 @@ private struct GroupEditorSheet: View {
                 .font(.title3.weight(.semibold))
 
             if let parentPath = mode.parentPath, !parentPath.isEmpty {
-                LabeledContent("Parent") {
-                    Text(parentPath)
-                        .font(.callout.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                groupSheetReadOnlyField(title: "Parent", value: parentPath)
             } else {
-                LabeledContent("Parent") {
-                    Text("Root")
-                        .foregroundStyle(.secondary)
-                }
+                groupSheetReadOnlyField(title: "Parent", value: "Root", secondary: true)
             }
 
             if let targetPath = mode.targetPath {
-                LabeledContent("Path") {
-                    Text(targetPath)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                groupSheetReadOnlyField(title: "Path", value: targetPath, monospaced: true, secondary: true)
             }
 
             TextField("Group title", text: $title)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .keemacBoxedField()
                 .onSubmit {
                     submit()
                 }
@@ -746,7 +1101,6 @@ private struct GroupEditorSheet: View {
                         iconID = nil
                     }
                     .disabled(iconID == nil)
-                    .hoverHighlight()
                 }
 
                 IconPalettePicker(selectedIconID: $iconID)
@@ -764,20 +1118,45 @@ private struct GroupEditorSheet: View {
                     dismiss()
                 }
                 .disabled(isSaving)
-                .hoverHighlight()
+                .keemacSecondaryActionButton()
 
                 Spacer()
 
                 Button(mode.submitTitle) {
                     submit()
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(isSaving)
-                .hoverHighlight()
+                .keemacPrimaryActionButton()
             }
         }
         .padding(18)
         .frame(minWidth: 420)
+    }
+
+    private func groupSheetReadOnlyField(
+        title: String,
+        value: String,
+        monospaced: Bool = false,
+        secondary: Bool = false
+    ) -> some View {
+        LabeledContent(title) {
+            Text(value)
+                .font(monospaced ? .callout.monospaced() : .callout)
+                .foregroundStyle(secondary ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(.quaternary)
+                )
+        }
     }
 
     private func submit() {
@@ -807,6 +1186,9 @@ private struct VaultEntryEditorSheet: View {
     @State private var revealPassword: Bool = false
     @State private var showPasswordGenerator: Bool = false
     @State private var passwordGeneratorOptions = PasswordGenerator.Options()
+    @State private var showOTPConfigurationEditor: Bool = false
+    @State private var showAdvancedFields: Bool = false
+    @State private var attachmentImportError: String?
 
     init(
         mode: EntryEditorMode,
@@ -823,155 +1205,163 @@ private struct VaultEntryEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Form {
-                Section("Basic") {
-                    TextField("Title", text: $form.title)
-                    TextField("Username", text: $form.username)
-                    passwordField
-                    TextField("URL", text: $form.url)
-                    TextField("Notes", text: $form.notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
+        VStack(spacing: 0) {
+            Text(mode.title)
+                .font(.headline.weight(.semibold))
+                .padding(.vertical, 10)
 
-                Section("Icon") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 10) {
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 14) {
+                        ZStack(alignment: .bottomTrailing) {
                             EntryIconView(
                                 iconPNGData: nil,
                                 iconID: form.iconID,
-                                size: 20,
+                                size: 24,
                                 fallbackSystemImage: "key.fill"
                             )
-                            Text(form.iconID.map { "Icon \($0)" } ?? "Default icon")
+                            .frame(width: 54, height: 54)
+                            .background(
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+
+                            Button {
+                                showAdvancedFields = true
+                            } label: {
+                                Image(systemName: "pencil.circle.fill")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: 6, y: 6)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(mode.helperText)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Default") {
-                                form.iconID = nil
+                            if let path = mode.groupPathHint {
+                                Text("Group: \(path)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .disabled(form.iconID == nil)
-                            .hoverHighlight()
                         }
-
-                        IconPalettePicker(selectedIconID: $form.iconID)
                     }
-                }
 
-                Section("Custom Fields") {
-                    if form.customFields.isEmpty {
-                        Text("No custom fields")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach($form.customFields) { $field in
-                            VStack(alignment: .leading, spacing: 6) {
-                                TextField("Key", text: $field.key)
-                                TextField("Value", text: $field.value)
-                                Toggle("Protected", isOn: $field.isProtected)
-                                Button("Remove Field", role: .destructive) {
-                                    form.customFields.removeAll(where: { $0.id == field.id })
+                    editorFieldRow(title: "Title") {
+                        flatInputContainer {
+                            TextField("e.g. GitHub", text: $form.title)
+                                .textFieldStyle(.plain)
+                        }
+                    }
+
+                    editorFieldRow(title: "Username") {
+                        flatInputContainer {
+                            TextField("email@example.com", text: $form.username)
+                                .textFieldStyle(.plain)
+                        }
+                    }
+
+                    editorFieldRow(title: "Password") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            passwordField
+                            GeometryReader { geometry in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                        .fill(Color(nsColor: .separatorColor).opacity(0.5))
+                                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                        .fill(Color.green)
+                                        .frame(width: geometry.size.width * passwordStrengthProgress)
                                 }
-                                .hoverHighlight(tint: .red)
                             }
-                            .padding(.vertical, 4)
+                            .frame(height: 3)
                         }
                     }
 
-                    Button("Add Custom Field") {
-                        form.customFields.append(
-                            VaultCustomFieldForm(key: "", value: "", isProtected: false)
-                        )
+                    editorFieldRow(title: "URL") {
+                        flatInputContainer {
+                            HStack(spacing: 8) {
+                                TextField("https://", text: $form.url)
+                                    .textFieldStyle(.plain)
+                                if let url = URL(string: form.url), !form.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Link(destination: url) {
+                                        Image(systemName: "arrow.up.right.square")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    Image(systemName: "arrow.up.right.square")
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
                     }
-                    .hoverHighlight()
-                }
 
-                Section("OTP") {
-                    Toggle("Enable OTP", isOn: $otpEnabled)
-                        .onChange(of: otpEnabled) { _, enabled in
-                            if enabled {
-                                form.otp = form.otp ?? VaultOTPForm(secret: "")
-                            } else {
-                                form.otp = nil
-                            }
+                    editorFieldRow(title: "Notes") {
+                        flatInputContainer(minHeight: 100) {
+                            TextEditor(text: $form.notes)
+                                .frame(minHeight: 84, maxHeight: 130)
+                                .font(.body)
+                                .scrollContentBackground(.hidden)
+                                .background(Color.clear)
                         }
+                    }
 
-                    if otpEnabled {
-                        if form.otp == nil {
-                            Text("Configure OTP fields")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            TextField("Secret (Base32/Base64/Hex)", text: Binding(
-                                get: { form.otp?.secret ?? "" },
-                                set: { form.otp?.secret = $0 }
-                            ))
+                    otpPanel
 
-                            Picker("Algorithm", selection: Binding(
-                                get: { form.otp?.algorithm ?? .sha1 },
-                                set: { form.otp?.algorithm = $0 }
-                            )) {
-                                Text("SHA1").tag(VaultOTPAlgorithm.sha1)
-                                Text("SHA256").tag(VaultOTPAlgorithm.sha256)
-                                Text("SHA512").tag(VaultOTPAlgorithm.sha512)
-                            }
+                    attachmentsPanel
 
-                            Picker("Storage", selection: Binding(
-                                get: { form.otp?.storageStyle ?? .otpAuth },
-                                set: { form.otp?.storageStyle = $0 }
-                            )) {
-                                Text("otpauth URL").tag(VaultOTPStorageStyle.otpAuth)
-                                Text("Native TimeOTP").tag(VaultOTPStorageStyle.native)
-                            }
+                    customFieldsPanel
 
-                            Stepper(
-                                "Digits: \(form.otp?.digits ?? 6)",
-                                value: Binding(
-                                    get: { form.otp?.digits ?? 6 },
-                                    set: { form.otp?.digits = $0 }
-                                ),
-                                in: 6...9
-                            )
-                            Stepper(
-                                "Period: \(form.otp?.period ?? 30)s",
-                                value: Binding(
-                                    get: { form.otp?.period ?? 30 },
-                                    set: { form.otp?.period = $0 }
-                                ),
-                                in: 1...120
-                            )
-                        }
+                    if showAdvancedFields {
+                        advancedPanel
+                    }
+
+                    if let attachmentImportError {
+                        Text(attachmentImportError)
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                    }
+
+                    if let validationMessage {
+                        Text(validationMessage)
+                            .font(.callout)
+                            .foregroundStyle(.red)
                     }
                 }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 18)
             }
-            .formStyle(.grouped)
 
-            if let validationMessage {
-                Text(validationMessage)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-            }
+            Divider()
 
             HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .disabled(isSaving)
-                .hoverHighlight()
-
                 Spacer()
-
-                Button(mode.submitTitle) {
-                    submit()
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Cancel")
+                        .frame(minWidth: 94)
                 }
-                .buttonStyle(.borderedProminent)
+                .keemacSecondaryActionButton(minWidth: 94)
                 .disabled(isSaving)
-                .hoverHighlight()
+
+                Button {
+                    submit()
+                } label: {
+                    Text(mode.submitTitle == "Save" ? "Save Changes" : mode.submitTitle)
+                        .frame(minWidth: 126)
+                }
+                .keemacPrimaryActionButton(minWidth: 126)
+                .disabled(isSaving)
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .frame(minWidth: 560, minHeight: 580)
-        .navigationTitle(mode.title)
+        .frame(minWidth: 780, minHeight: 620)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var passwordField: some View {
@@ -979,10 +1369,10 @@ private struct VaultEntryEditorSheet: View {
             Group {
                 if revealPassword {
                     TextField("Password", text: $form.password)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
                 } else {
                     SecureField("Password", text: $form.password)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
                 }
             }
 
@@ -1013,6 +1403,306 @@ private struct VaultEntryEditorSheet: View {
                 )
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.quaternary)
+        )
+    }
+
+    private var otpPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("ONE-TIME PASSWORD (OTP)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if otpEnabled {
+                    Button(showOTPConfigurationEditor ? "Hide" : "Reveal") {
+                        showOTPConfigurationEditor.toggle()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .hoverHighlight(cornerRadius: 8)
+                } else {
+                    Button("Setup Key") {
+                        otpEnabled = true
+                        form.otp = form.otp ?? VaultOTPForm(secret: "")
+                        showOTPConfigurationEditor = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .hoverHighlight(cornerRadius: 8)
+                }
+            }
+
+            if otpEnabled, form.otp != nil {
+                HStack(spacing: 8) {
+                    Label("Secret Key Configured", systemImage: "clock")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Remove", role: .destructive) {
+                        otpEnabled = false
+                        form.otp = nil
+                        showOTPConfigurationEditor = false
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .hoverHighlight(cornerRadius: 8, tint: .red)
+                    Button("Edit Configuration...") {
+                        showOTPConfigurationEditor = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .hoverHighlight(cornerRadius: 8)
+                }
+            } else {
+                Text("No OTP configured. Click Setup to add a secret key.")
+                    .foregroundStyle(.secondary)
+            }
+
+            if showOTPConfigurationEditor {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Secret (Base32/Base64/Hex)", text: Binding(
+                        get: { form.otp?.secret ?? "" },
+                        set: { form.otp?.secret = $0 }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+
+                    HStack(spacing: 8) {
+                        Picker("Algorithm", selection: Binding(
+                            get: { form.otp?.algorithm ?? .sha1 },
+                            set: { form.otp?.algorithm = $0 }
+                        )) {
+                            Text("SHA1").tag(VaultOTPAlgorithm.sha1)
+                            Text("SHA256").tag(VaultOTPAlgorithm.sha256)
+                            Text("SHA512").tag(VaultOTPAlgorithm.sha512)
+                        }
+                        Picker("Storage", selection: Binding(
+                            get: { form.otp?.storageStyle ?? .otpAuth },
+                            set: { form.otp?.storageStyle = $0 }
+                        )) {
+                            Text("otpauth URL").tag(VaultOTPStorageStyle.otpAuth)
+                            Text("Native TimeOTP").tag(VaultOTPStorageStyle.native)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Stepper(
+                            "Digits: \(form.otp?.digits ?? 6)",
+                            value: Binding(
+                                get: { form.otp?.digits ?? 6 },
+                                set: { form.otp?.digits = $0 }
+                            ),
+                            in: 6...9
+                        )
+                        Stepper(
+                            "Period: \(form.otp?.period ?? 30)s",
+                            value: Binding(
+                                get: { form.otp?.period ?? 30 },
+                                set: { form.otp?.period = $0 }
+                            ),
+                            in: 1...120
+                        )
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(.quaternary)
+        )
+    }
+
+    private var advancedPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Advanced")
+                    .font(.headline)
+                Spacer()
+                Button("Hide") {
+                    showAdvancedFields = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .hoverHighlight(cornerRadius: 8)
+            }
+
+            HStack(spacing: 10) {
+                EntryIconView(
+                    iconPNGData: nil,
+                    iconID: form.iconID,
+                    size: 20,
+                    fallbackSystemImage: "key.fill"
+                )
+                Text(form.iconID.map { "Icon \($0)" } ?? "Default icon")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Default") {
+                    form.iconID = nil
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .hoverHighlight(cornerRadius: 8)
+            }
+
+            IconPalettePicker(selectedIconID: $form.iconID)
+
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(.quaternary)
+        )
+    }
+
+    private var attachmentsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Attachments")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Add Attachment") {
+                    importAttachments()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .hoverHighlight(cornerRadius: 8)
+            }
+
+            if form.attachments.isEmpty {
+                Text("No attachments")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(form.attachments) { attachment in
+                    HStack(spacing: 8) {
+                        Image(systemName: "paperclip")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(attachment.name)
+                                .lineLimit(1)
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.size), countStyle: .file))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("Protected", isOn: attachmentProtectionBinding(for: attachment.id))
+                            .toggleStyle(.checkbox)
+                        Button(role: .destructive) {
+                            form.attachments.removeAll { $0.id == attachment.id }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.plain)
+                        .hoverHighlight(tint: .red)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(.quaternary)
+        )
+    }
+
+    private var customFieldsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Custom Fields")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Add Custom Field") {
+                    form.customFields.append(
+                        VaultCustomFieldForm(key: "", value: "", isProtected: false)
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .hoverHighlight(cornerRadius: 8)
+            }
+
+            if form.customFields.isEmpty {
+                Text("No custom fields")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(form.customFields) { field in
+                    HStack(spacing: 8) {
+                        TextField("Key", text: customFieldKeyBinding(for: field.id))
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Value", text: customFieldValueBinding(for: field.id))
+                            .textFieldStyle(.roundedBorder)
+                        Toggle("Protected", isOn: customFieldProtectionBinding(for: field.id))
+                            .toggleStyle(.checkbox)
+                        Button(role: .destructive) {
+                            form.customFields.removeAll(where: { $0.id == field.id })
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.plain)
+                        .hoverHighlight(tint: .red)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(.quaternary)
+        )
+    }
+
+    private func editorFieldRow<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text(title)
+                .frame(width: 82, alignment: .trailing)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .padding(.top, 8)
+
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func flatInputContainer<Content: View>(minHeight: CGFloat = 38, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .keemacBoxedField(minHeight: minHeight, cornerRadius: 7)
+    }
+
+    private var passwordStrengthProgress: CGFloat {
+        guard !form.password.isEmpty else {
+            return 0
+        }
+        var score: CGFloat = min(CGFloat(form.password.count) / 20.0, 1.0) * 0.45
+        if form.password.rangeOfCharacter(from: .uppercaseLetters) != nil { score += 0.15 }
+        if form.password.rangeOfCharacter(from: .decimalDigits) != nil { score += 0.15 }
+        if form.password.rangeOfCharacter(from: CharacterSet.punctuationCharacters.union(.symbols)) != nil { score += 0.25 }
+        return min(score, 1.0)
     }
 
     private func submit() {
@@ -1066,210 +1756,353 @@ private struct VaultEntryEditorSheet: View {
 
         return nil
     }
+
+    private func attachmentProtectionBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                form.attachments.first(where: { $0.id == id })?.isProtected ?? false
+            },
+            set: { isProtected in
+                guard let index = form.attachments.firstIndex(where: { $0.id == id }) else {
+                    return
+                }
+                let attachment = form.attachments[index]
+                form.attachments[index] = VaultAttachment(
+                    name: attachment.name,
+                    data: attachment.data,
+                    isProtected: isProtected
+                )
+            }
+        )
+    }
+
+    private func customFieldKeyBinding(for id: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                form.customFields.first(where: { $0.id == id })?.key ?? ""
+            },
+            set: { newValue in
+                guard let index = form.customFields.firstIndex(where: { $0.id == id }) else {
+                    return
+                }
+                form.customFields[index].key = newValue
+            }
+        )
+    }
+
+    private func customFieldValueBinding(for id: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                form.customFields.first(where: { $0.id == id })?.value ?? ""
+            },
+            set: { newValue in
+                guard let index = form.customFields.firstIndex(where: { $0.id == id }) else {
+                    return
+                }
+                form.customFields[index].value = newValue
+            }
+        )
+    }
+
+    private func customFieldProtectionBinding(for id: UUID) -> Binding<Bool> {
+        Binding(
+            get: {
+                form.customFields.first(where: { $0.id == id })?.isProtected ?? false
+            },
+            set: { isProtected in
+                guard let index = form.customFields.firstIndex(where: { $0.id == id }) else {
+                    return
+                }
+                form.customFields[index].isProtected = isProtected
+            }
+        )
+    }
+
+    private func importAttachments() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.resolvesAliases = true
+        panel.title = "Add Attachments"
+
+        guard panel.runModal() == .OK else {
+            return
+        }
+
+        do {
+            let imported = try panel.urls.map { url in
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer {
+                    if didAccess {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+
+                let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+                return VaultAttachment(name: url.lastPathComponent, data: data)
+            }
+
+            for attachment in imported {
+                form.attachments.removeAll { $0.name == attachment.name }
+                form.attachments.append(attachment)
+            }
+            form.attachments.sort { lhs, rhs in
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            attachmentImportError = nil
+        } catch {
+            attachmentImportError = "Failed to import attachment: \(error.localizedDescription)"
+        }
+    }
 }
 
 private struct VaultEntryDetailView: View {
     let entry: VaultEntry
+    let onShowHistory: (() -> Void)?
     let onEdit: (() -> Void)?
     let onDelete: (() -> Void)?
+    @Environment(\.openURL) private var openURL
     @State private var revealPassword: Bool = false
     @State private var now: Date = .now
     private let otpTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    EntryIconView(
-                        iconPNGData: entry.iconPNGData,
-                        iconID: entry.iconID,
-                        size: 28,
-                        fallbackSystemImage: "key.fill"
-                    )
+            VStack(spacing: 20) {
+                EntryIconView(
+                    iconPNGData: entry.iconPNGData,
+                    iconID: entry.iconID,
+                    size: 40,
+                    fallbackSystemImage: "key.fill"
+                )
+                .frame(width: 74, height: 74)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+
+                VStack(spacing: 6) {
                     Text(entry.title)
-                        .font(.title2.bold())
+                        .font(.system(size: 44 / 2, weight: .semibold))
+                    Text("Modified: \(formattedModifiedDate)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
 
-                    Spacer()
-
-                    if let onEdit {
-                        IconActionButton(systemImage: "pencil", helpText: "Edit entry", action: onEdit)
-                    }
-                    if let onDelete {
-                        IconActionButton(systemImage: "trash", helpText: "Delete entry", tint: .red, action: onDelete)
+                detailField(title: "Username") {
+                    HStack {
+                        Text(entry.username ?? "-")
+                            .textSelection(.enabled)
+                        Spacer()
+                        if let username = entry.username, !username.isEmpty {
+                            IconActionButton(systemImage: "doc.on.doc", helpText: "Copy username") {
+                                copyToClipboard(username)
+                            }
+                        }
                     }
                 }
 
-                metadata
-                credentials
-                notes
-                customFields
+                detailField(title: "Password") {
+                    HStack {
+                        if revealPassword {
+                            Text(displayPassword)
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                        } else {
+                            Text(displayPassword)
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.disabled)
+                        }
+                        Spacer()
+
+                        if entry.password != nil {
+                            IconActionButton(
+                                systemImage: revealPassword ? "eye.slash" : "eye",
+                                helpText: revealPassword ? "Hide password" : "Reveal password"
+                            ) {
+                                revealPassword.toggle()
+                            }
+                            if let password = entry.password, !password.isEmpty {
+                                IconActionButton(systemImage: "doc.on.doc", helpText: "Copy password") {
+                                    copyToClipboard(password)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let otpState {
+                    detailField(title: "TOTP") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top) {
+                                Text(formattedOTPCode(otpState.code))
+                                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                                Spacer()
+                                HStack(spacing: 8) {
+                                    Image(systemName: "clock")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(otpState.remainingSeconds) s")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.callout.monospaced())
+                            }
+
+                            GeometryReader { geometry in
+                                ZStack(alignment: .leading) {
+                                    Capsule(style: .continuous)
+                                        .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                                    Capsule(style: .continuous)
+                                        .fill(Color.green)
+                                        .frame(width: geometry.size.width * otpProgressFraction(otpState))
+                                }
+                            }
+                            .frame(height: 4)
+
+                            HStack {
+                                Spacer()
+                                IconActionButton(systemImage: "doc.on.doc", helpText: "Copy OTP code") {
+                                    copyToClipboard(otpState.code)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                detailField(title: "Website") {
+                    if let url = entry.url {
+                        Link(url.absoluteString, destination: url)
+                            .textSelection(.enabled)
+                    } else {
+                        Text("-")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let notes = entry.notes, !notes.isEmpty {
+                    detailField(title: "Notes") {
+                        Text(notes)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if !entry.customFields.isEmpty {
+                    detailField(title: "Custom Fields") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(entry.customFields.enumerated()), id: \.element.id) { _, field in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(field.key)
+                                        .font(.callout.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    if field.isProtected {
+                                        Text("••••••")
+                                            .textSelection(.disabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    } else {
+                                        Text(field.value)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !entry.attachments.isEmpty {
+                    detailField(title: "Attachments") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(entry.attachments) { attachment in
+                                HStack(spacing: 8) {
+                                    Image(systemName: "paperclip")
+                                        .foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(attachment.name)
+                                            .lineLimit(1)
+                                        Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.size), countStyle: .file))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    IconActionButton(systemImage: "square.and.arrow.down", helpText: "Save attachment") {
+                                        exportAttachment(attachment)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        if let url = entry.url {
+                            openURL(url)
+                        }
+                    } label: {
+                        Label("Open Website", systemImage: "globe")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .tint(.blue)
+                    .keemacPrimaryActionButton()
+                    .disabled(entry.url == nil)
+
+                    if let onEdit {
+                        Button {
+                            onEdit()
+                        } label: {
+                            Label("Edit Entry", systemImage: "pencil")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .keemacSecondaryActionButton()
+                        .disabled(false)
+                    }
+
+                    IconActionButton(
+                        systemImage: "clock.arrow.circlepath",
+                        helpText: "Show history"
+                    ) {
+                        onShowHistory?()
+                    }
+                    .disabled(onShowHistory == nil)
+                }
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 34)
+            .padding(.vertical, 26)
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Entry")
         .onReceive(otpTimer) { value in
             now = value
         }
     }
 
-    private var metadata: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Group")
-                .font(.headline)
-            Text(entry.groupPath.isEmpty ? "-" : entry.groupPath)
-                .font(.callout.monospaced())
+    private func detailField<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
+
+            content()
+                .keemacBoxedField(minHeight: KeeMacControlMetrics.tallFieldHeight, cornerRadius: 10)
         }
     }
 
-    private var credentials: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Credentials")
-                .font(.headline)
-
-            HStack {
-                Text("Username")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 100, alignment: .leading)
-                Text(entry.username ?? "-")
-                    .textSelection(.enabled)
-                Spacer()
-                if let username = entry.username, !username.isEmpty {
-                    IconActionButton(systemImage: "doc.on.doc", helpText: "Copy username") {
-                        copyToClipboard(username)
-                    }
-                }
-            }
-
-            HStack {
-                Text("Password")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 100, alignment: .leading)
-
-                if revealPassword {
-                    Text(displayPassword)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                } else {
-                    Text(displayPassword)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.disabled)
-                }
-
-                Spacer()
-
-                if entry.password != nil {
-                    IconActionButton(
-                        systemImage: revealPassword ? "eye.slash" : "eye",
-                        helpText: revealPassword ? "Hide password" : "Reveal password"
-                    ) {
-                        revealPassword.toggle()
-                    }
-
-                    if let password = entry.password, !password.isEmpty {
-                        IconActionButton(systemImage: "doc.on.doc", helpText: "Copy password") {
-                            copyToClipboard(password)
-                        }
-                    }
-                }
-            }
-
-            HStack {
-                Text("URL")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 100, alignment: .leading)
-                if let url = entry.url {
-                    Link(url.absoluteString, destination: url)
-                        .textSelection(.enabled)
-                } else {
-                    Text("-")
-                }
-            }
-
-            if let otpState {
-                HStack {
-                    Text("OTP")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 100, alignment: .leading)
-
-                    Text(otpState.code)
-                        .font(.system(.title3, design: .monospaced))
-                        .fontWeight(.semibold)
-                        .textSelection(.enabled)
-
-                    Spacer()
-
-                    IconActionButton(systemImage: "doc.on.doc", helpText: "Copy OTP code") {
-                        copyToClipboard(otpState.code)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Text("Expires in")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 100, alignment: .leading)
-
-                    Text("\(otpState.remainingSeconds)s")
-                        .font(.callout.monospaced())
-
-                    ProgressView(
-                        value: Double(otpState.period - otpState.remainingSeconds),
-                        total: Double(otpState.period)
-                    )
-                    .frame(width: 180)
-
-                    Spacer()
-                }
-            }
+    private func formattedOTPCode(_ code: String) -> String {
+        guard code.count >= 6 else {
+            return code
         }
+        let midpoint = code.index(code.startIndex, offsetBy: code.count / 2)
+        return String(code[..<midpoint]) + " " + String(code[midpoint...])
     }
 
-    private var notes: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Notes")
-                .font(.headline)
-            Text(entry.notes?.isEmpty == false ? entry.notes! : "-")
-                .textSelection(.enabled)
-                .foregroundStyle(entry.notes?.isEmpty == false ? .primary : .secondary)
+    private func otpProgressFraction(_ state: OTPCodeState) -> CGFloat {
+        let elapsed = max(state.period - state.remainingSeconds, 0)
+        guard state.period > 0 else {
+            return 0
         }
-    }
-
-    @ViewBuilder
-    private var customFields: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Custom Fields")
-                .font(.headline)
-
-            if entry.customFields.isEmpty {
-                Text("-")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(entry.customFields.enumerated()), id: \.element.id) { _, field in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(field.key)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 140, alignment: .leading)
-
-                        if field.isProtected {
-                            Text("••••••")
-                                .textSelection(.disabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Text(field.value)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-            }
-        }
+        return min(max(CGFloat(elapsed) / CGFloat(state.period), 0), 1)
     }
 
     private var displayPassword: String {
@@ -1282,6 +2115,13 @@ private struct VaultEntryDetailView: View {
         return String(repeating: "•", count: max(password.count, 8))
     }
 
+    private var formattedModifiedDate: String {
+        guard let modifiedAt = entry.modifiedAt else {
+            return "Unknown"
+        }
+        return modifiedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+
     private var otpState: OTPCodeState? {
         guard let otp = entry.otp else {
             return nil
@@ -1291,6 +2131,327 @@ private struct VaultEntryDetailView: View {
 
     private func copyToClipboard(_ value: String) {
         SensitiveClipboard.shared.copySensitiveText(value)
+    }
+
+    private func exportAttachment(_ attachment: VaultAttachment) {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = attachment.name
+        panel.title = "Save Attachment"
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else {
+            return
+        }
+
+        do {
+            try attachment.data.write(to: destinationURL, options: [.atomic])
+        } catch {
+            NSSound.beep()
+        }
+    }
+}
+
+private struct VaultEntryHistorySheet: View {
+    let entry: VaultEntry
+    let onRevert: @Sendable (_ historyIndex: Int) async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var revertingRevisionIndex: Int?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Entry History")
+                        .font(.title3.weight(.semibold))
+                    Text(entry.title)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Close") {
+                    dismiss()
+                }
+                .keemacSecondaryActionButton()
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if historyChanges.isEmpty {
+                        ContentUnavailableView(
+                            "No History",
+                            systemImage: "clock.arrow.circlepath",
+                            description: Text("This entry does not have saved revisions yet.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
+                    } else {
+                        ForEach(historyChanges) { change in
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Text(change.title)
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(change.formattedDate)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                    if let historyIndex = change.historyIndex {
+                                        IconActionButton(
+                                            systemImage: "arrow.uturn.backward.circle",
+                                            helpText: "Revert to this revision"
+                                        ) {
+                                            revertingRevisionIndex = historyIndex
+                                            Task {
+                                                await onRevert(historyIndex)
+                                                revertingRevisionIndex = nil
+                                            }
+                                        }
+                                        .disabled(revertingRevisionIndex != nil)
+                                    }
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(change.details, id: \.self) { detail in
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Circle()
+                                                .fill(Color.accentColor)
+                                                .frame(width: 5, height: 5)
+                                                .padding(.top, 6)
+                                            Text(detail)
+                                                .font(.callout)
+                                                .foregroundStyle(.primary)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                        }
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(minWidth: 640, minHeight: 520)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var historyChanges: [HistoryChangeItem] {
+        let snapshots = [EntryRevisionSnapshot.current(entry)] + entry.history.enumerated().map(EntryRevisionSnapshot.revision)
+        guard !snapshots.isEmpty else {
+            return []
+        }
+
+        return snapshots.enumerated().map { index, snapshot in
+            let olderSnapshot = snapshots.indices.contains(index + 1) ? snapshots[index + 1] : nil
+            let details = olderSnapshot.map { snapshot.diffDetails(comparedTo: $0) } ?? ["Initial recorded revision"]
+            return HistoryChangeItem(
+                id: historyChangeID(for: snapshot, index: index),
+                title: historyChangeTitle(for: index),
+                formattedDate: Self.dateFormatter.string(from: snapshot.modifiedAt ?? .distantPast),
+                details: details,
+                historyIndex: snapshot.historyIndex
+            )
+        }
+    }
+
+    private func historyChangeTitle(for index: Int) -> String {
+        switch index {
+        case 0:
+            return "Latest change"
+        case 1:
+            return "Previous change"
+        default:
+            return "Earlier change #\(index + 1)"
+        }
+    }
+
+    private func historyChangeID(for snapshot: EntryRevisionSnapshot, index: Int) -> String {
+        let timestamp = snapshot.modifiedAt?.timeIntervalSinceReferenceDate ?? 0
+        return "\(index)-\(snapshot.id.uuidString)-\(timestamp)"
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+}
+
+private struct HistoryChangeItem: Identifiable {
+    let id: String
+    let title: String
+    let formattedDate: String
+    let details: [String]
+    let historyIndex: Int?
+}
+
+private struct EntryRevisionSnapshot {
+    let id: UUID
+    let isCurrent: Bool
+    let historyIndex: Int?
+    let modifiedAt: Date?
+    let groupPath: String
+    let title: String
+    let username: String?
+    let password: String?
+    let url: URL?
+    let notes: String?
+    let customFields: [VaultCustomField]
+    let attachments: [VaultAttachment]
+    let iconID: Int?
+    let otp: VaultOTPConfiguration?
+    let otpStorageStyle: VaultOTPStorageStyle?
+
+    static func current(_ entry: VaultEntry) -> EntryRevisionSnapshot {
+        EntryRevisionSnapshot(
+            id: entry.id,
+            isCurrent: true,
+            historyIndex: nil,
+            modifiedAt: entry.modifiedAt,
+            groupPath: entry.groupPath,
+            title: entry.title,
+            username: entry.username,
+            password: entry.password,
+            url: entry.url,
+            notes: entry.notes,
+            customFields: entry.customFields,
+            attachments: entry.attachments,
+            iconID: entry.iconID,
+            otp: entry.otp,
+            otpStorageStyle: entry.otpStorageStyle
+        )
+    }
+
+    static func revision(_ item: EnumeratedSequence<[VaultEntryRevision]>.Element) -> EntryRevisionSnapshot {
+        let revision = item.element
+        return EntryRevisionSnapshot(
+            id: revision.id,
+            isCurrent: false,
+            historyIndex: item.offset,
+            modifiedAt: revision.modifiedAt,
+            groupPath: revision.groupPath,
+            title: revision.title,
+            username: revision.username,
+            password: revision.password,
+            url: revision.url,
+            notes: revision.notes,
+            customFields: revision.customFields,
+            attachments: revision.attachments,
+            iconID: revision.iconID,
+            otp: revision.otp,
+            otpStorageStyle: revision.otpStorageStyle
+        )
+    }
+
+    func diffDetails(comparedTo older: EntryRevisionSnapshot) -> [String] {
+        var details: [String] = []
+
+        if title != older.title {
+            details.append("Title: \(quoted(older.title)) -> \(quoted(title))")
+        }
+        if normalized(username) != normalized(older.username) {
+            details.append("Username: \(describe(old: older.username, new: username))")
+        }
+        if normalized(password) != normalized(older.password) {
+            details.append("Password updated")
+        }
+        if normalizedURL(url) != normalizedURL(older.url) {
+            details.append("Website: \(describe(old: older.url?.absoluteString, new: url?.absoluteString))")
+        }
+        if normalized(groupPath) != normalized(older.groupPath) {
+            details.append("Moved: \(describe(old: emptyAsDash(older.groupPath), new: emptyAsDash(groupPath)))")
+        }
+        if normalized(notes) != normalized(older.notes) {
+            details.append("Notes updated")
+        }
+        if iconID != older.iconID {
+            details.append("Icon changed")
+        }
+        if otpSummary != older.otpSummary {
+            details.append("One-time password configuration updated")
+        }
+        if attachmentSummary != older.attachmentSummary {
+            details.append("Attachments updated")
+        }
+
+        let customFieldChanges = customFieldDiff(comparedTo: older)
+        details.append(contentsOf: customFieldChanges)
+
+        return details
+    }
+
+    private var otpSummary: String {
+        guard let otp else {
+            return "none"
+        }
+        return "\(otp.algorithm.rawValue)|\(otp.digits)|\(otp.period)|\(otp.timeBase)|\(otpStorageStyle?.rawValue ?? "none")|\(otp.secret.base64EncodedString())"
+    }
+
+    private var attachmentSummary: String {
+        attachments
+            .map { "\($0.name)|\($0.data.base64EncodedString())|\($0.isProtected)" }
+            .sorted()
+            .joined(separator: "||")
+    }
+
+    private func customFieldDiff(comparedTo older: EntryRevisionSnapshot) -> [String] {
+        let oldFields = Dictionary(uniqueKeysWithValues: older.customFields.map { ($0.key, $0) })
+        let newFields = Dictionary(uniqueKeysWithValues: customFields.map { ($0.key, $0) })
+        let keys = Set(oldFields.keys).union(newFields.keys).sorted()
+        var details: [String] = []
+
+        for key in keys {
+            switch (oldFields[key], newFields[key]) {
+            case let (nil, newField?):
+                details.append("Custom field added: \(newField.key)")
+            case let (oldField?, nil):
+                details.append("Custom field removed: \(oldField.key)")
+            case let (oldField?, newField?):
+                if oldField.value != newField.value || oldField.isProtected != newField.isProtected {
+                    details.append("Custom field updated: \(newField.key)")
+                }
+            case (nil, nil):
+                break
+            }
+        }
+
+        return details
+    }
+
+    private func normalized(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func normalizedURL(_ value: URL?) -> String {
+        value?.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func emptyAsDash(_ value: String) -> String {
+        let normalizedValue = normalized(value)
+        return normalizedValue.isEmpty ? "-" : normalizedValue
+    }
+
+    private func quoted(_ value: String) -> String {
+        "\"\(value)\""
+    }
+
+    private func describe(old: String?, new: String?) -> String {
+        "\(quoted(displayValue(old))) -> \(quoted(displayValue(new)))"
+    }
+
+    private func displayValue(_ value: String?) -> String {
+        let normalizedValue = normalized(value)
+        return normalizedValue.isEmpty ? "-" : normalizedValue
     }
 }
 
@@ -1383,7 +2544,6 @@ private struct PasswordGeneratorPopover: View {
                 Button("Close") {
                     dismiss()
                 }
-                .hoverHighlight()
 
                 Spacer()
 
@@ -1392,7 +2552,7 @@ private struct PasswordGeneratorPopover: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!options.hasAnyCharacterSet)
-                .hoverHighlight()
+                .hoverHighlight(cornerRadius: 10)
             }
         }
         .padding(14)

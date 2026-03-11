@@ -42,7 +42,7 @@ xcodebuild \
   -derivedDataPath "$DERIVED_KISSXML" \
   ARCHS=arm64 \
   ONLY_ACTIVE_ARCH=YES \
-  MACOSX_DEPLOYMENT_TARGET=13.0 \
+  MACOSX_DEPLOYMENT_TARGET=15.0 \
   build
 
 mkdir -p "$KEEPASSKIT_SRC/Carthage/Build/Mac"
@@ -58,7 +58,7 @@ xcodebuild \
   -derivedDataPath "$DERIVED_KEEPASSKIT" \
   ARCHS=arm64 \
   ONLY_ACTIVE_ARCH=YES \
-  MACOSX_DEPLOYMENT_TARGET=13.0 \
+  MACOSX_DEPLOYMENT_TARGET=15.0 \
   build
 
 rm -rf "$VENDOR_DIR/KissXML.xcframework" "$VENDOR_DIR/KeePassKit.xcframework"
