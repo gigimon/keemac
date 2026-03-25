@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+  pull_request:
+
+jobs:
+  test-and-package:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify scripts are executable
+        run: chmod +x scripts/build_app.sh scripts/make_release_archive.sh
+
+      - name: Run test suite
+        run: swift test
+
+      - name: Build packaged app archive
+        env:
+          APP_VERSION: ci-${{ github.run_number }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUNDLE_IDENTIFIER: com.keemac.ci
+        run: scripts/make_release_archive.sh
+
+      - name: Upload packaged app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeeMac-ci-build
+          path: |
+            .build/release/*.zip
+            .build/release/*.sha256
+

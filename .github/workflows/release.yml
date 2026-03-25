@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing git tag to publish, for example v0.1.0
+        required: true
+        type: string
+
+jobs:
+  publish-release:
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+            git fetch --tags --force
+            git checkout "$TAG"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify scripts are executable
+        run: chmod +x scripts/build_app.sh scripts/make_release_archive.sh
+
+      - name: Run test suite
+        run: swift test
+
+      - name: Build release archive
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUNDLE_IDENTIFIER: com.keemac.release
+        run: scripts/make_release_archive.sh
+
+      - name: Create release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            gh release create "${{ steps.version.outputs.tag }}" \
+              --title "KeeMac ${{ steps.version.outputs.version }}" \
+              --generate-notes
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.version.outputs.tag }}" \
+            .build/release/*.zip \
+            .build/release/*.sha256 \
+            --clobber

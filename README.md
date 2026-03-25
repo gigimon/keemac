@@ -107,6 +107,43 @@ swift run KeeMacApp
 swift test
 ```
 
+## CI and GitHub Releases
+
+The repository includes GitHub Actions workflows for build verification and release publishing:
+
+- `/.github/workflows/ci.yml`
+  - runs on pushes to `main`, `master`, and `codex/**`
+  - runs on all pull requests
+  - executes `swift test`
+  - builds a packaged `.app`
+  - uploads a ZIP archive and SHA-256 checksum as workflow artifacts
+
+- `/.github/workflows/release.yml`
+  - runs on tags matching `v*`
+  - can also be started manually from the Actions tab
+  - executes `swift test`
+  - builds a release ZIP
+  - creates a GitHub Release if needed
+  - uploads the ZIP and checksum to that release
+
+Local helper script:
+
+```bash
+./scripts/make_release_archive.sh
+```
+
+Artifacts produced locally and in CI:
+
+- `.build/release/KeeMac-<version>-macOS.zip`
+- `.build/release/KeeMac-<version>-macOS.zip.sha256`
+
+To publish a release through GitHub Actions:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Touch ID Notes
 
 - Touch ID is configured per selected vault in **Settings**.
