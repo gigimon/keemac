@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing git tag to publish, for example v0.1.0
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check the tag is vX.Y.Z
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_REF#refs/tags/}"
+          if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Release tags look like v1.2.3, got '$TAG'"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+
+  unit-tests:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Run test suite
+        run: swift test
+
+  ui-tests:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Allow UI automation without a prompt
+        run: sudo automationmodetool enable-automationmode-without-authentication
+
+      - name: Verify scripts are executable
+        run: chmod +x scripts/build_app.sh scripts/run_ui_tests.sh
+
+      - name: Run UI tests
+        run: scripts/run_ui_tests.sh
+
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeeMac-ui-test-results
+          path: .build/UITests.xcresult
+          retention-days: 14
+
+  publish-release:
+    needs: [version, unit-tests, ui-tests]
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          fetch-depth: 0
+
+      - name: Verify scripts are executable
+        run: chmod +x scripts/build_app.sh scripts/make_release_archive.sh
+
+      - name: Build release archive
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+          BUNDLE_IDENTIFIER: com.keemac.release
+        run: scripts/make_release_archive.sh
+
+      - name: Create release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${{ needs.version.outputs.tag }}" >/dev/null 2>&1; then
+            gh release create "${{ needs.version.outputs.tag }}" \
+              --title "KeeMac ${{ needs.version.outputs.version }}" \
+              --generate-notes
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.version.outputs.tag }}" \
+            .build/release/*.zip \
+            .build/release/*.sha256 \
+            --clobber

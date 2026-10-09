@@ -1,0 +1,128 @@
+import Foundation
+
+public enum VaultKDFAlgorithm: String, Sendable, CaseIterable, Equatable {
+    case argon2d
+    case argon2id
+    case aes
+
+    public var displayName: String {
+        switch self {
+        case .argon2d: return "Argon2d"
+        case .argon2id: return "Argon2id"
+        case .aes: return "AES-KDF"
+        }
+    }
+
+    public var isArgon: Bool {
+        self == .argon2d || self == .argon2id
+    }
+}
+
+/// Database-level settings backed by the KDBX `Meta` section and key derivation
+/// parameters. Password/key-file changes are handled separately.
+public struct VaultDatabaseSettings: Sendable, Equatable {
+    public var name: String
+    public var details: String
+    public var kdf: VaultKDFAlgorithm
+    public var argonIterations: UInt64
+    public var argonMemoryMiB: UInt64
+    public var argonParallelism: UInt32
+    public var aesRounds: UInt64
+    /// Entry templates group; nil when none is set.
+    public var templatesGroupPath: String?
+
+    public init(
+        name: String = "",
+        details: String = "",
+        kdf: VaultKDFAlgorithm = .argon2id,
+        argonIterations: UInt64 = 10,
+        argonMemoryMiB: UInt64 = 64,
+        argonParallelism: UInt32 = 2,
+        aesRounds: UInt64 = 600_000,
+        templatesGroupPath: String? = nil
+    ) {
+        self.name = name
+        self.details = details
+        self.kdf = kdf
+        self.argonIterations = argonIterations
+        self.argonMemoryMiB = argonMemoryMiB
+        self.argonParallelism = argonParallelism
+        self.aesRounds = aesRounds
+        self.templatesGroupPath = templatesGroupPath
+    }
+}
+
+public enum VaultCipher: String, Sendable, CaseIterable, Equatable {
+    case aes256
+    case chacha20
+    case twofish
+
+    public var displayName: String {
+        switch self {
+        case .aes256: return "AES-256"
+        case .chacha20: return "ChaCha20"
+        case .twofish: return "Twofish"
+        }
+    }
+}
+
+/// Everything needed to create a new KDBX file.
+public struct VaultCreationOptions: Sendable, Equatable {
+    public var fileURL: URL
+    public var name: String
+    public var details: String
+    public var masterPassword: String
+    public var keyFileURL: URL?
+    public var useTrash: Bool
+    public var historyMaxItems: Int
+    public var cipher: VaultCipher
+    public var keyDerivation: VaultDatabaseSettings
+    public var compress: Bool
+
+    public init(
+        fileURL: URL,
+        name: String,
+        details: String = "",
+        masterPassword: String,
+        keyFileURL: URL? = nil,
+        useTrash: Bool = true,
+        historyMaxItems: Int = 10,
+        cipher: VaultCipher = .chacha20,
+        keyDerivation: VaultDatabaseSettings = VaultDatabaseSettings(),
+        compress: Bool = true
+    ) {
+        self.fileURL = fileURL
+        self.name = name
+        self.details = details
+        self.masterPassword = masterPassword
+        self.keyFileURL = keyFileURL
+        self.useTrash = useTrash
+        self.historyMaxItems = historyMaxItems
+        self.cipher = cipher
+        self.keyDerivation = keyDerivation
+        self.compress = compress
+    }
+}
+
+/// Unencrypted facts read from a KDBX file header before unlocking.
+public struct VaultFileInfo: Sendable, Equatable {
+    public let majorVersion: Int
+    public let minorVersion: Int
+    public let cipher: VaultCipher?
+    public let kdf: VaultKDFAlgorithm?
+
+    public init(majorVersion: Int, minorVersion: Int, cipher: VaultCipher?, kdf: VaultKDFAlgorithm?) {
+        self.majorVersion = majorVersion
+        self.minorVersion = minorVersion
+        self.cipher = cipher
+        self.kdf = kdf
+    }
+
+    public var formatName: String {
+        "KDBX \(majorVersion).\(minorVersion)"
+    }
+
+    public var summary: String {
+        [formatName, kdf?.displayName, cipher?.displayName].compactMap { $0 }.joined(separator: " · ")
+    }
+}

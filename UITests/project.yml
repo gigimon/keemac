@@ -1,0 +1,35 @@
+name: KeeMacUITests
+options:
+  bundleIdPrefix: com.keemac
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  KeeMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - KeeMacUITests
+      - path: Fixtures
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.keemac.uitests.runner
+schemes:
+  KeeMacUITests:
+    build:
+      targets:
+        KeeMacUITests: [test]
+    test:
+      targets:
+        - KeeMacUITests

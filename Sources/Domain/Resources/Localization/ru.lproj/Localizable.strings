@@ -1,0 +1,9 @@
+"Cannot read vault file at path: %@" = "Не удаётся прочитать файл базы: %@";
+"Cannot read vault file." = "Не удаётся прочитать файл базы.";
+"Could not parse the vault." = "Не удалось прочитать базу.";
+"Could not parse the vault: %@" = "Не удалось прочитать базу: %@";
+"Master password is invalid, or this database requires an additional key file." = "Неверный мастер-пароль, или для этой базы нужен файл-ключ.";
+"Required dependency is not configured: %@." = "Не настроен нужный компонент: %@.";
+"This KDBX version is not supported yet." = "Эта версия KDBX пока не поддерживается.";
+"Unexpected vault error." = "Непредвиденная ошибка базы.";
+"Unexpected vault error: %@" = "Непредвиденная ошибка базы: %@";

@@ -1,0 +1,682 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>%lld changes</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld изменение</string>
+      <key>few</key><string>%lld изменения</string>
+      <key>many</key><string>%lld изменений</string>
+      <key>other</key><string>%lld изменения</string>
+    </dict>
+  </dict>
+  <key>%lld characters</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld символ</string>
+      <key>few</key><string>%lld символа</string>
+      <key>many</key><string>%lld символов</string>
+      <key>other</key><string>%lld символа</string>
+    </dict>
+  </dict>
+  <key>%lld conflicting copies</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld конфликтующая копия</string>
+      <key>few</key><string>%lld конфликтующие копии</string>
+      <key>many</key><string>%lld конфликтующих копий</string>
+      <key>other</key><string>%lld конфликтующие копии</string>
+    </dict>
+  </dict>
+  <key>%lld conflicts kept in history</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld конфликт сохранён в истории</string>
+      <key>few</key><string>%lld конфликта сохранены в истории</string>
+      <key>many</key><string>%lld конфликтов сохранено в истории</string>
+      <key>other</key><string>%lld конфликта сохранены в истории</string>
+    </dict>
+  </dict>
+  <key>%lld days</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld день</string>
+      <key>few</key><string>%lld дня</string>
+      <key>many</key><string>%lld дней</string>
+      <key>other</key><string>%lld дня</string>
+    </dict>
+  </dict>
+  <key>%lld days ago</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld день назад</string>
+      <key>few</key><string>%lld дня назад</string>
+      <key>many</key><string>%lld дней назад</string>
+      <key>other</key><string>%lld дня назад</string>
+    </dict>
+  </dict>
+  <key>%lld digits</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld цифра</string>
+      <key>few</key><string>%lld цифры</string>
+      <key>many</key><string>%lld цифр</string>
+      <key>other</key><string>%lld цифры</string>
+    </dict>
+  </dict>
+  <key>%lld earlier versions · Show History</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld прежняя версия · Показать историю</string>
+      <key>few</key><string>%lld прежние версии · Показать историю</string>
+      <key>many</key><string>%lld прежних версий · Показать историю</string>
+      <key>other</key><string>%lld прежней версии · Показать историю</string>
+    </dict>
+  </dict>
+  <key>%lld groups</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld группа</string>
+      <key>few</key><string>%lld группы</string>
+      <key>many</key><string>%lld групп</string>
+      <key>other</key><string>%lld группы</string>
+    </dict>
+  </dict>
+  <key>Apply to all %lld conflicts</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Применить ко всем %lld конфликту</string>
+      <key>few</key><string>Применить ко всем %lld конфликтам</string>
+      <key>many</key><string>Применить ко всем %lld конфликтам</string>
+      <key>other</key><string>Применить ко всем %lld конфликтам</string>
+    </dict>
+  </dict>
+  <key>%lld linked fields will be copied as plain values. Links only work inside one database.</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld связанное поле будет скопировано как обычное значение. Ссылки работают только внутри одной базы.</string>
+      <key>few</key><string>%lld связанных поля будут скопированы как обычные значения. Ссылки работают только внутри одной базы.</string>
+      <key>many</key><string>%lld связанных полей будут скопированы как обычные значения. Ссылки работают только внутри одной базы.</string>
+      <key>other</key><string>%lld связанного поля будут скопированы как обычные значения. Ссылки работают только внутри одной базы.</string>
+    </dict>
+  </dict>
+  <key>%lld keys are encrypted</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld ключ зашифрован</string>
+      <key>few</key><string>%lld ключа зашифрованы</string>
+      <key>many</key><string>%lld ключей зашифрованы</string>
+      <key>other</key><string>%lld ключа зашифрованы</string>
+    </dict>
+  </dict>
+  <key>%lld private keys found in ~/.ssh</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Найден %lld приватный ключ в ~/.ssh</string>
+      <key>few</key><string>Найдено %lld приватных ключа в ~/.ssh</string>
+      <key>many</key><string>Найдено %lld приватных ключей в ~/.ssh</string>
+      <key>other</key><string>Найдено %lld приватных ключа в ~/.ssh</string>
+    </dict>
+  </dict>
+  <key>Import %lld Keys</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Импортировать %lld ключ</string>
+      <key>few</key><string>Импортировать %lld ключа</string>
+      <key>many</key><string>Импортировать %lld ключей</string>
+      <key>other</key><string>Импортировать %lld ключа</string>
+    </dict>
+  </dict>
+  <key>%lld keys imported to %@</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@ импортировано в %@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld ключ</string>
+      <key>few</key><string>%lld ключа</string>
+      <key>many</key><string>%lld ключей</string>
+      <key>other</key><string>%lld ключа</string>
+    </dict>
+  </dict>
+  <key>Running · %lld keys from %@</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Работает · %#@n@ из %@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld ключ</string>
+      <key>few</key><string>%lld ключа</string>
+      <key>many</key><string>%lld ключей</string>
+      <key>other</key><string>%lld ключа</string>
+    </dict>
+  </dict>
+  <key>%lld entries</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>%lld entries have quality check turned off and are excluded</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись с выключенной проверкой качества не учитывается</string>
+      <key>few</key><string>%lld записи с выключенной проверкой качества не учитываются</string>
+      <key>many</key><string>%lld записей с выключенной проверкой качества не учитываются</string>
+      <key>other</key><string>%lld записи с выключенной проверкой качества не учитываются</string>
+    </dict>
+  </dict>
+  <key>%lld entries use passwords found in known data breaches</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись использует пароль из известных утечек</string>
+      <key>few</key><string>%lld записи используют пароли из известных утечек</string>
+      <key>many</key><string>%lld записей используют пароли из известных утечек</string>
+      <key>other</key><string>%lld записи используют пароли из известных утечек</string>
+    </dict>
+  </dict>
+  <key>%lld expire</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>истекает</string>
+      <key>few</key><string>истекают</string>
+      <key>many</key><string>истекают</string>
+      <key>other</key><string>истекают</string>
+    </dict>
+  </dict>
+  <key>%lld favorites</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld в Избранном</string>
+      <key>few</key><string>%lld в Избранном</string>
+      <key>many</key><string>%lld в Избранном</string>
+      <key>other</key><string>%lld в Избранном</string>
+    </dict>
+  </dict>
+  <key>%lld have expired</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>истёк</string>
+      <key>few</key><string>истекли</string>
+      <key>many</key><string>истекли</string>
+      <key>other</key><string>истекли</string>
+    </dict>
+  </dict>
+  <key>%lld hours</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld час</string>
+      <key>few</key><string>%lld часа</string>
+      <key>many</key><string>%lld часов</string>
+      <key>other</key><string>%lld часа</string>
+    </dict>
+  </dict>
+  <key>%lld hours ago</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld час назад</string>
+      <key>few</key><string>%lld часа назад</string>
+      <key>many</key><string>%lld часов назад</string>
+      <key>other</key><string>%lld часа назад</string>
+    </dict>
+  </dict>
+  <key>%lld issues need attention</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld проблема требует внимания</string>
+      <key>few</key><string>%lld проблемы требуют внимания</string>
+      <key>many</key><string>%lld проблем требуют внимания</string>
+      <key>other</key><string>%lld проблемы требуют внимания</string>
+    </dict>
+  </dict>
+  <key>%lld lines</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld строка</string>
+      <key>few</key><string>%lld строки</string>
+      <key>many</key><string>%lld строк</string>
+      <key>other</key><string>%lld строки</string>
+    </dict>
+  </dict>
+  <key>%lld minutes</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld минута</string>
+      <key>few</key><string>%lld минуты</string>
+      <key>many</key><string>%lld минут</string>
+      <key>other</key><string>%lld минуты</string>
+    </dict>
+  </dict>
+  <key>%lld months</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld месяц</string>
+      <key>few</key><string>%lld месяца</string>
+      <key>many</key><string>%lld месяцев</string>
+      <key>other</key><string>%lld месяца</string>
+    </dict>
+  </dict>
+  <key>%lld more expire</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>ещё %lld истекает</string>
+      <key>few</key><string>ещё %lld истекают</string>
+      <key>many</key><string>ещё %lld истекают</string>
+      <key>other</key><string>ещё %lld истекают</string>
+    </dict>
+  </dict>
+  <key>%lld pages</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld страница</string>
+      <key>few</key><string>%lld страницы</string>
+      <key>many</key><string>%lld страниц</string>
+      <key>other</key><string>%lld страницы</string>
+    </dict>
+  </dict>
+  <key>%lld passwords</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld пароль</string>
+      <key>few</key><string>%lld пароля</string>
+      <key>many</key><string>%lld паролей</string>
+      <key>other</key><string>%lld пароля</string>
+    </dict>
+  </dict>
+  <key>%lld passwords expire</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld пароль истекает</string>
+      <key>few</key><string>%lld пароля истекают</string>
+      <key>many</key><string>%lld паролей истекают</string>
+      <key>other</key><string>%lld пароля истекают</string>
+    </dict>
+  </dict>
+  <key>%lld passwords have expired</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld пароль истёк</string>
+      <key>few</key><string>%lld пароля истекли</string>
+      <key>many</key><string>%lld паролей истекли</string>
+      <key>other</key><string>%lld пароля истекли</string>
+    </dict>
+  </dict>
+  <key>%lld seconds</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld секунда</string>
+      <key>few</key><string>%lld секунды</string>
+      <key>many</key><string>%lld секунд</string>
+      <key>other</key><string>%lld секунды</string>
+    </dict>
+  </dict>
+  <key>%lld threads</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld поток</string>
+      <key>few</key><string>%lld потока</string>
+      <key>many</key><string>%lld потоков</string>
+      <key>other</key><string>%lld потока</string>
+    </dict>
+  </dict>
+  <key>%lld top-level</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld верхнего уровня</string>
+      <key>few</key><string>%lld верхнего уровня</string>
+      <key>many</key><string>%lld верхнего уровня</string>
+      <key>other</key><string>%lld верхнего уровня</string>
+    </dict>
+  </dict>
+  <key>%lld uses</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld использование</string>
+      <key>few</key><string>%lld использования</string>
+      <key>many</key><string>%lld использований</string>
+      <key>other</key><string>%lld использования</string>
+    </dict>
+  </dict>
+  <key>%lld words</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld слово</string>
+      <key>few</key><string>%lld слова</string>
+      <key>many</key><string>%lld слов</string>
+      <key>other</key><string>%lld слова</string>
+    </dict>
+  </dict>
+  <key>%lld years</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld год</string>
+      <key>few</key><string>%lld года</string>
+      <key>many</key><string>%lld лет</string>
+      <key>other</key><string>%lld года</string>
+    </dict>
+  </dict>
+  <key>Changes from %lld conflicting copies</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Изменения из %lld конфликтующей копии</string>
+      <key>few</key><string>Изменения из %lld конфликтующих копий</string>
+      <key>many</key><string>Изменения из %lld конфликтующих копий</string>
+      <key>other</key><string>Изменения из %lld конфликтующих копий</string>
+    </dict>
+  </dict>
+  <key>Check %lld Passwords</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Проверить %lld пароль</string>
+      <key>few</key><string>Проверить %lld пароля</string>
+      <key>many</key><string>Проверить %lld паролей</string>
+      <key>other</key><string>Проверить %lld пароля</string>
+    </dict>
+  </dict>
+  <key>Checked %lld unique passwords · just now</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Проверен %lld уникальный пароль · только что</string>
+      <key>few</key><string>Проверено %lld уникальных пароля · только что</string>
+      <key>many</key><string>Проверено %lld уникальных паролей · только что</string>
+      <key>other</key><string>Проверено %lld уникальных пароля · только что</string>
+    </dict>
+  </dict>
+  <key>Expired %lld days ago</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Истёк %lld день назад</string>
+      <key>few</key><string>Истёк %lld дня назад</string>
+      <key>many</key><string>Истёк %lld дней назад</string>
+      <key>other</key><string>Истёк %lld дня назад</string>
+    </dict>
+  </dict>
+  <key>Expires in %lld days</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Истекает через %lld день</string>
+      <key>few</key><string>Истекает через %lld дня</string>
+      <key>many</key><string>Истекает через %lld дней</string>
+      <key>other</key><string>Истекает через %lld дня</string>
+    </dict>
+  </dict>
+  <key>It is %lld days overdue.</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Срок пропущен на %lld день.</string>
+      <key>few</key><string>Срок пропущен на %lld дня.</string>
+      <key>many</key><string>Срок пропущен на %lld дней.</string>
+      <key>other</key><string>Срок пропущен на %lld дня.</string>
+    </dict>
+  </dict>
+  <key>Moved %lld copies to the Trash</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld копия перемещена в Корзину</string>
+      <key>few</key><string>%lld копии перемещены в Корзину</string>
+      <key>many</key><string>%lld копий перемещено в Корзину</string>
+      <key>other</key><string>%lld копии перемещены в Корзину</string>
+    </dict>
+  </dict>
+  <key>Permanently delete %lld entries in the Trash?</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Удалить навсегда %lld запись из Корзины?</string>
+      <key>few</key><string>Удалить навсегда %lld записи из Корзины?</string>
+      <key>many</key><string>Удалить навсегда %lld записей из Корзины?</string>
+      <key>other</key><string>Удалить навсегда %lld записи из Корзины?</string>
+    </dict>
+  </dict>
+  <key>Restored %lld entries that were overwritten on another device</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Восстановлена %lld запись, перезаписанная на другом устройстве</string>
+      <key>few</key><string>Восстановлены %lld записи, перезаписанные на другом устройстве</string>
+      <key>many</key><string>Восстановлено %lld записей, перезаписанных на другом устройстве</string>
+      <key>other</key><string>Восстановлены %lld записи, перезаписанные на другом устройстве</string>
+    </dict>
+  </dict>
+  <key>Seen %lld times</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Встречался %lld раз</string>
+      <key>few</key><string>Встречался %lld раза</string>
+      <key>many</key><string>Встречался %lld раз</string>
+      <key>other</key><string>Встречался %lld раза</string>
+    </dict>
+  </dict>
+  <key>every %lld days</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>каждый %lld день</string>
+      <key>few</key><string>каждые %lld дня</string>
+      <key>many</key><string>каждые %lld дней</string>
+      <key>other</key><string>каждые %lld дня</string>
+    </dict>
+  </dict>
+  <key>in the next %lld days</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>в ближайший %lld день</string>
+      <key>few</key><string>в ближайшие %lld дня</string>
+      <key>many</key><string>в ближайшие %lld дней</string>
+      <key>other</key><string>в ближайшие %lld дня</string>
+    </dict>
+  </dict>
+  <key>≈ %lld bits</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>≈ %lld бит</string>
+      <key>few</key><string>≈ %lld бита</string>
+      <key>many</key><string>≈ %lld бит</string>
+      <key>other</key><string>≈ %lld бита</string>
+    </dict>
+  </dict>
+</dict>
+</plist>

@@ -1,0 +1,9 @@
+TweetNaCl: a crypto library in 100 tweets (version 20140427)
+
+Daniel J. Bernstein, Wesley Janssen, Tanja Lange, Peter Schwabe,
+Matthew Dempsky, Sjaak Smetsers
+
+TweetNaCl is a self-contained public-domain C library.
+https://tweetnacl.cr.yp.to/
+
+KeeMac includes tweetnacl.c and tweetnacl.h unmodified in Sources/CTweetNaCl.
