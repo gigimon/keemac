@@ -444,7 +444,7 @@ public struct RootView: View {
             let currentSize = window.contentRect(forFrameRect: window.frame).size
             if currentSize.width < minSize.width || currentSize.height < minSize.height {
                 window.setContentSize(NSSize(width: max(currentSize.width, 1240), height: max(currentSize.height, 780)))
-                keepOnScreen(window)
+                centerOnScreen(window)
             }
 
         case .idle, .loading, .locked, .failed:
@@ -457,21 +457,23 @@ public struct RootView: View {
             let currentSize = window.contentRect(forFrameRect: window.frame).size
             if abs(currentSize.width - targetSize.width) > 1 || currentSize.height > 760 || currentSize.height < 540 {
                 window.setContentSize(targetSize)
-                keepOnScreen(window)
+                centerOnScreen(window)
             }
         }
     }
 
-    /// Growing keeps the top-left corner, which can push the window past the screen's edge.
-    private func keepOnScreen(_ window: NSWindow) {
+    /// Resizing keeps the top-left corner, so the unlocked browser would grow from the small unlock
+    /// window's spot towards the bottom right, under the Dock. Centers it on the screen's visible area instead.
+    private func centerOnScreen(_ window: NSWindow) {
         guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else {
             return
         }
         var frame = window.frame
         frame.size.width = min(frame.width, visible.width)
         frame.size.height = min(frame.height, visible.height)
-        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
-        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
+        frame.origin.x = visible.midX - frame.width / 2
+        frame.origin.y = visible.midY - frame.height / 2
+        frame = frame.integral
         if frame != window.frame {
             window.setFrame(frame, display: true)
         }
