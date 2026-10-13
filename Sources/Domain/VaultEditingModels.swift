@@ -25,19 +25,26 @@ public struct VaultOTPForm: Equatable, Sendable {
     public var period: Int
     public var algorithm: VaultOTPAlgorithm
     public var storageStyle: VaultOTPStorageStyle
+    public var kind: VaultOTPKind
+    /// HOTP only: the counter of the next code.
+    public var counter: Int
 
     public init(
         secret: String,
         digits: Int = 6,
         period: Int = 30,
         algorithm: VaultOTPAlgorithm = .sha1,
-        storageStyle: VaultOTPStorageStyle = .otpAuth
+        storageStyle: VaultOTPStorageStyle = .otpAuth,
+        kind: VaultOTPKind = .totp,
+        counter: Int = 0
     ) {
         self.secret = secret
         self.digits = digits
         self.period = period
         self.algorithm = algorithm
         self.storageStyle = storageStyle
+        self.kind = kind
+        self.counter = counter
     }
 }
 

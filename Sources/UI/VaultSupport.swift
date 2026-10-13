@@ -246,7 +246,7 @@ struct EntryRevisionSnapshot {
         guard let otp else {
             return "none"
         }
-        return "\(otp.algorithm.rawValue)|\(otp.digits)|\(otp.period)|\(otp.timeBase)|\(otpStorageStyle?.rawValue ?? "none")|\(otp.secret.base64EncodedString())"
+        return "\(otp.kind.rawValue)|\(otp.algorithm.rawValue)|\(otp.digits)|\(otp.period)|\(otp.timeBase)|\(otpStorageStyle?.rawValue ?? "none")|\(otp.secret.base64EncodedString())"
     }
 
     private var attachmentSummary: String {
@@ -557,12 +557,30 @@ struct TagFlowLayout: Layout {
 
 struct OTPCodeState {
     let code: String
+    /// Time-based kinds only; 0 for HOTP.
     let remainingSeconds: Int
     let period: Int
+    let kind: VaultOTPKind
+    /// HOTP only: the counter this code was made for.
+    let counter: UInt64?
+
+    var isCounterBased: Bool {
+        kind.isCounterBased
+    }
 }
 
 enum OTPCodeGenerator {
+    /// Steam Guard codes use five characters from this alphabet instead of digits.
+    private static let steamAlphabet = Array("23456789BCDFGHJKMNPQRTVWXY")
+
     static func makeCodeState(from config: VaultOTPConfiguration, now: Date) -> OTPCodeState? {
+        if config.kind == .hotp {
+            guard let code = code(secret: config.secret, counter: config.counter, digits: config.digits, algorithm: config.algorithm) else {
+                return nil
+            }
+            return OTPCodeState(code: code, remainingSeconds: 0, period: 0, kind: .hotp, counter: config.counter)
+        }
+
         let period = max(config.period, 1)
         let seconds = now.timeIntervalSince1970 - config.timeBase
         guard seconds >= 0 else {
@@ -570,13 +588,47 @@ enum OTPCodeGenerator {
         }
 
         let counter = UInt64(floor(seconds / Double(period)))
-        let counterData = counter.bigEndianData
-        let hash = hmac(
-            secret: config.secret,
-            data: counterData,
-            algorithm: config.algorithm
-        )
+        let code: String?
+        if config.kind == .steam {
+            code = steamCode(secret: config.secret, counter: counter)
+        } else {
+            code = self.code(secret: config.secret, counter: counter, digits: config.digits, algorithm: config.algorithm)
+        }
+        guard let code else {
+            return nil
+        }
 
+        let elapsed = Int(floor(seconds))
+        let remainder = elapsed % period
+        let remaining = remainder == 0 ? period : (period - remainder)
+
+        return OTPCodeState(code: code, remainingSeconds: remaining, period: period, kind: config.kind, counter: nil)
+    }
+
+    /// RFC 4226 code for one counter value.
+    static func code(secret: Data, counter: UInt64, digits: Int, algorithm: VaultOTPAlgorithm) -> String? {
+        guard let value = truncatedValue(secret: secret, counter: counter, algorithm: algorithm) else {
+            return nil
+        }
+        let modulo = decimalModulo(digits: digits)
+        return String(value % modulo).leftPadded(to: min(max(digits, 1), 9), with: "0")
+    }
+
+    static func steamCode(secret: Data, counter: UInt64) -> String? {
+        guard var value = truncatedValue(secret: secret, counter: counter, algorithm: .sha1) else {
+            return nil
+        }
+        var code = ""
+        for _ in 0..<5 {
+            code.append(steamAlphabet[value % steamAlphabet.count])
+            value /= steamAlphabet.count
+        }
+        return code
+    }
+
+    /// Dynamic truncation: 31 bits of the HMAC at the offset given by its last nibble.
+    private static func truncatedValue(secret: Data, counter: UInt64, algorithm: VaultOTPAlgorithm) -> Int? {
+        let hash = hmac(secret: secret, data: counter.bigEndianData, algorithm: algorithm)
         guard hash.count >= 20 else {
             return nil
         }
@@ -586,23 +638,11 @@ enum OTPCodeGenerator {
             return nil
         }
 
-        let codeInt =
+        return
             (Int(hash[offset] & 0x7f) << 24) |
             (Int(hash[offset + 1]) << 16) |
             (Int(hash[offset + 2]) << 8) |
             Int(hash[offset + 3])
-        let modulo = decimalModulo(digits: config.digits)
-        guard modulo > 0 else {
-            return nil
-        }
-
-        let code = String(codeInt % modulo).leftPadded(to: config.digits, with: "0")
-
-        let elapsed = Int(floor(seconds))
-        let remainder = elapsed % period
-        let remaining = remainder == 0 ? period : (period - remainder)
-
-        return OTPCodeState(code: code, remainingSeconds: remaining, period: period)
     }
 
     private static func hmac(secret: Data, data: Data, algorithm: VaultOTPAlgorithm) -> Data {

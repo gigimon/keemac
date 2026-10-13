@@ -267,19 +267,43 @@ public enum VaultOTPAlgorithm: String, Equatable, Sendable {
     case sha512
 }
 
+/// Time-based (RFC 6238), counter-based (RFC 4226) or Steam Guard codes.
+public enum VaultOTPKind: String, Equatable, Sendable, CaseIterable {
+    case totp
+    case hotp
+    case steam
+
+    public var isCounterBased: Bool {
+        self == .hotp
+    }
+}
+
 public struct VaultOTPConfiguration: Equatable, Sendable {
     public let secret: Data
     public let digits: Int
     public let period: Int
     public let timeBase: TimeInterval
     public let algorithm: VaultOTPAlgorithm
+    public let kind: VaultOTPKind
+    /// The HOTP counter of the next code; 0 for time-based kinds.
+    public let counter: UInt64
 
-    public init(secret: Data, digits: Int, period: Int, timeBase: TimeInterval, algorithm: VaultOTPAlgorithm) {
+    public init(
+        secret: Data,
+        digits: Int,
+        period: Int,
+        timeBase: TimeInterval,
+        algorithm: VaultOTPAlgorithm,
+        kind: VaultOTPKind = .totp,
+        counter: UInt64 = 0
+    ) {
         self.secret = secret
         self.digits = digits
         self.period = period
         self.timeBase = timeBase
         self.algorithm = algorithm
+        self.kind = kind
+        self.counter = counter
     }
 }
 
