@@ -56,6 +56,9 @@ public final class AppSettingsStore {
         static let quickAccessEnabled = "keemac.settings.quickAccess.enabled"
         static let quickAccessShortcut = "keemac.settings.quickAccess.shortcut"
         static let quickAccessUnlockDuration = "keemac.settings.quickAccess.unlockDuration"
+        static let autoTypeEnabled = "keemac.settings.autoType.enabled"
+        static let autoTypeShortcut = "keemac.settings.autoType.shortcut"
+        static let autoTypeKeyDelay = "keemac.settings.autoType.keyDelay"
         static let sshAgentEnabled = "keemac.settings.sshAgent.enabled"
         static let sshPickKeysByHost = "keemac.settings.sshAgent.pickByHost"
         static let sshLearnHosts = "keemac.settings.sshAgent.learnHosts"
@@ -200,6 +203,20 @@ public final class AppSettingsStore {
         }
     }
 
+    /// Type the matching entry into the frontmost window with a global shortcut.
+    public var autoTypeEnabled: Bool {
+        didSet { userDefaults.set(autoTypeEnabled, forKey: Key.autoTypeEnabled) }
+    }
+
+    public var autoTypeShortcut: QuickAccessShortcut {
+        didSet { userDefaults.set(try? JSONEncoder().encode(autoTypeShortcut), forKey: Key.autoTypeShortcut) }
+    }
+
+    /// Pause between Auto-Type keystrokes in milliseconds (0…1000).
+    public var autoTypeKeyDelay: Int {
+        didSet { userDefaults.set(autoTypeKeyDelay, forKey: Key.autoTypeKeyDelay) }
+    }
+
     /// Serve the main database's SSH keys on the agent socket.
     public var sshAgentEnabled: Bool {
         didSet { userDefaults.set(sshAgentEnabled, forKey: Key.sshAgentEnabled) }
@@ -267,6 +284,10 @@ public final class AppSettingsStore {
             .flatMap { try? JSONDecoder().decode(QuickAccessShortcut.self, from: $0) } ?? .default
         quickAccessUnlockDuration = (userDefaults.object(forKey: Key.quickAccessUnlockDuration) as? Int)
             .flatMap(QuickAccessUnlockDuration.init(rawValue:)) ?? .untilAutoLock
+        autoTypeEnabled = userDefaults.object(forKey: Key.autoTypeEnabled) as? Bool ?? true
+        autoTypeShortcut = userDefaults.data(forKey: Key.autoTypeShortcut)
+            .flatMap { try? JSONDecoder().decode(QuickAccessShortcut.self, from: $0) } ?? .autoTypeDefault
+        autoTypeKeyDelay = min(max(userDefaults.object(forKey: Key.autoTypeKeyDelay) as? Int ?? 10, 0), 1000)
         sshAgentEnabled = userDefaults.object(forKey: Key.sshAgentEnabled) as? Bool ?? true
         sshPickKeysByHost = userDefaults.object(forKey: Key.sshPickKeysByHost) as? Bool ?? true
         sshLearnHosts = userDefaults.object(forKey: Key.sshLearnHosts) as? Bool ?? true

@@ -117,6 +117,18 @@ struct EntryDetailPane: View {
                 attachmentsCard
             }
 
+            if AutoTypeDetailSummary.isShown(for: entry) {
+                VStack(alignment: .leading, spacing: 3) {
+                    KMSectionLabel(text: L("auto-type"))
+                    AutoTypeDetailSummary(entry: entry)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+                .kmCard()
+            }
+
             if !entry.tags.isEmpty {
                 TagFlowLayout(spacing: 6, lineSpacing: 6) {
                     ForEach(entry.tags, id: \.self) { tag in
@@ -277,6 +289,12 @@ struct EntryDetailPane: View {
                 formRow(L("attachments"), alignTop: true) {
                     attachmentRows
                         .padding(.leading, 12)
+                }
+            }
+
+            if AutoTypeDetailSummary.isShown(for: entry) {
+                formRow(L("auto-type")) {
+                    AutoTypeDetailSummary(entry: entry)
                 }
             }
         }

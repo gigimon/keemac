@@ -36,7 +36,8 @@ extension VaultEntryForm {
             checksPasswordQuality: entry.checksPasswordQuality,
             entryType: entry.entryType,
             templateName: entry.templateName,
-            sshAgent: entry.sshAgent
+            sshAgent: entry.sshAgent,
+            autoType: entry.autoType
         )
     }
 }
@@ -70,6 +71,17 @@ enum EntryFormValidation {
             }
             if otp.kind == .hotp, otp.counter < 0 {
                 return L("The HOTP counter can't be negative.")
+            }
+        }
+
+        if let autoType = form.autoType {
+            if let sequence = autoType.sequence, let error = AutoTypeSequence.validate(sequence) {
+                return L("Auto-Type: \(error.message)")
+            }
+            for association in autoType.associations where !association.sequence.trimmingCharacters(in: .whitespaces).isEmpty {
+                if let error = AutoTypeSequence.validate(association.sequence) {
+                    return L("Auto-Type: \(error.message)")
+                }
             }
         }
 

@@ -8,6 +8,7 @@ public struct SettingsView: View {
         case general
         case security
         case browser
+        case autoType
         case sshAgent
         case about
     }
@@ -18,6 +19,8 @@ public struct SettingsView: View {
     @State private var browser = BrowserIntegrationController.shared
     @State private var settings = AppSettingsStore.shared
     @State private var shortcutConflict = QuickAccessController.shared.shortcutConflict
+    @State private var autoTypeShortcutConflict = AutoTypeController.shared.shortcutConflict
+    @State private var accessibilityGranted = AccessibilityPermission.isGranted
     @State private var sshAgent = SSHAgentController.shared
     @State private var sshConfigIsSetUp = SSHConfigSetup.isSetUp()
     @State private var showsSSHConfigLines = false
@@ -60,6 +63,14 @@ public struct SettingsView: View {
             .tag(Tab.browser)
 
             settingsPage {
+                autoTypeGroups
+            }
+            .tabItem {
+                Label(L("Auto-Type"), systemImage: "keyboard")
+            }
+            .tag(Tab.autoType)
+
+            settingsPage {
                 sshAgentGroups
             }
             .tabItem {
@@ -85,10 +96,120 @@ public struct SettingsView: View {
             viewModel.refreshLaunchAtLoginState()
             browser.refreshHostStates()
             sshConfigIsSetUp = SSHConfigSetup.isSetUp()
+            accessibilityGranted = AccessibilityPermission.isGranted
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Back from System Settings › Accessibility.
+            accessibilityGranted = AccessibilityPermission.isGranted
+        }
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+            // KeeMac may not become active again after the switch is turned on.
+            if selectedTab == .autoType {
+                accessibilityGranted = AccessibilityPermission.isGranted
+            }
         }
         .sheet(isPresented: $showsSSHImport) {
             SSHImportSheet(viewModel: viewModel)
         }
+    }
+
+    // MARK: Auto-Type
+
+    @ViewBuilder
+    private var autoTypeGroups: some View {
+        settingsGroup(L("Auto-Type")) {
+            settingRow(L("Type with a shortcut"), subtitle: autoTypeSubtitle, isFirst: true) {
+                HStack(spacing: 10) {
+                    ShortcutRecorder(shortcut: Binding(
+                        get: { settings.autoTypeShortcut },
+                        set: { shortcut in
+                            settings.autoTypeShortcut = shortcut
+                            updateAutoTypeHotKey()
+                        }
+                    ), label: L("Auto-Type shortcut"), onFinish: updateAutoTypeHotKey)
+                    .disabled(!settings.autoTypeEnabled)
+                    .accessibilityIdentifier("settings.autoType.shortcut")
+                    settingsToggle(Binding(
+                        get: { settings.autoTypeEnabled },
+                        set: { isOn in
+                            settings.autoTypeEnabled = isOn
+                            updateAutoTypeHotKey()
+                        }
+                    ))
+                    .accessibilityIdentifier("settings.autoType.enabled")
+                }
+            }
+        }
+
+        settingsGroup(L("Permission")) {
+            settingRow(L("Accessibility access"), subtitle: L("Read the window title and type into other apps"), isFirst: true) {
+                HStack(spacing: 10) {
+                    Text(accessibilityGranted ? L("Granted") : L("Not granted"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(accessibilityGranted ? KM.success : KM.warning)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(
+                            Capsule().fill((accessibilityGranted ? KM.success : KM.warning).opacity(0.16))
+                        )
+                        .accessibilityIdentifier("settings.autoType.permission")
+                    Button(L("Open System Settings…")) {
+                        AccessibilityPermission.request()
+                        AccessibilityPermission.openSystemSettings()
+                    }
+                    .accessibilityIdentifier("settings.autoType.openSystemSettings")
+                }
+            }
+        }
+        Text(L("KeeMac needs Accessibility to read the window title and type into other apps."))
+            .font(.system(size: 11))
+            .foregroundStyle(KM.textSecondary)
+            .padding(.horizontal, 4)
+            .padding(.top, -10)
+
+        settingsGroup(L("Typing")) {
+            settingRow(L("Delay between keystrokes"), subtitle: L("Raise it when an app drops characters"), isFirst: true) {
+                HStack(spacing: 6) {
+                    TextField("", value: Binding(
+                        get: { settings.autoTypeKeyDelay },
+                        set: { settings.autoTypeKeyDelay = min(max($0, 0), 1000) }
+                    ), format: .number)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(size: 12).monospacedDigit())
+                    .frame(width: 44)
+                    .kmField(height: 24)
+                    .accessibilityIdentifier("settings.autoType.delay")
+                    Text(L("ms"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(KM.textSecondary)
+                    Stepper("", value: Binding(
+                        get: { settings.autoTypeKeyDelay },
+                        set: { settings.autoTypeKeyDelay = min(max($0, 0), 1000) }
+                    ), in: 0...1000, step: 5)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("settings.autoType.delayStepper")
+                }
+            }
+        }
+        (Text(L("Default sequence: ")) + Text(defaultAutoTypeSequence).font(.system(size: 11, design: .monospaced)))
+            .font(.system(size: 11))
+            .foregroundStyle(KM.textSecondary)
+            .padding(.horizontal, 4)
+            .padding(.top, -10)
+    }
+
+    private var autoTypeSubtitle: String {
+        if settings.autoTypeEnabled && autoTypeShortcutConflict {
+            return L("This shortcut is used by another app. Choose a different one")
+        }
+        return L("Types the matching entry into the frontmost window.")
+    }
+
+    private func updateAutoTypeHotKey() {
+        AutoTypeController.shared.updateHotKey()
+        autoTypeShortcutConflict = AutoTypeController.shared.shortcutConflict
     }
 
     // MARK: SSH agent
@@ -749,6 +870,7 @@ public struct SettingsView: View {
 /// Click, then press the new shortcut; Escape cancels.
 private struct ShortcutRecorder: View {
     @Binding var shortcut: QuickAccessShortcut
+    var label: String = L("Quick Access shortcut")
     let onFinish: () -> Void
     @State private var isRecording = false
     @State private var monitor: Any?
@@ -772,7 +894,7 @@ private struct ShortcutRecorder: View {
         }
         .buttonStyle(.plain)
         .help(L("Click and press a new shortcut"))
-        .accessibilityLabel(L("Quick Access shortcut"))
+        .accessibilityLabel(label)
         .accessibilityValue(shortcut.displayString)
         .onDisappear {
             if isRecording {
@@ -789,8 +911,9 @@ private struct ShortcutRecorder: View {
             return
         }
         isRecording = true
-        // While recording the current shortcut would open Quick Access instead of reaching this view.
+        // While recording the current shortcuts would open Quick Access or type instead of reaching this view.
         QuickAccessController.shared.suspendHotKey()
+        AutoTypeController.shared.suspendHotKey()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 { // Escape
                 stopRecording()
@@ -814,5 +937,7 @@ private struct ShortcutRecorder: View {
         }
         monitor = nil
         isRecording = false
+        QuickAccessController.shared.updateHotKey()
+        AutoTypeController.shared.updateHotKey()
     }
 }

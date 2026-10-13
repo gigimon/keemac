@@ -98,6 +98,8 @@ public final class AppViewModel {
         public let entryIDs: [UUID]
         /// Selects this group in the sidebar instead of the "changed elsewhere" list (after an import).
         public var groupPath: String?
+        /// Opens the entry's editor with the Auto-Type section expanded (after an Auto-Type error).
+        public var editsAutoType = false
     }
 
     public enum LoadState: Equatable {
@@ -240,6 +242,7 @@ public final class AppViewModel {
     private let synchronizer: (any VaultSynchronizing)?
     private let undoer: (any VaultUndoing)?
     private let transfer: (any VaultTransferring)?
+    private let autoTyper: (any VaultAutoTyping)?
     private var fileWatcher: VaultFileWatcher?
     private var isCheckingDisk = false
     private let biometricCredentialStore: any BiometricCredentialStoring
@@ -278,6 +281,7 @@ public final class AppViewModel {
         self.synchronizer = vaultLoader as? any VaultSynchronizing
         self.undoer = vaultLoader as? any VaultUndoing
         self.transfer = vaultLoader as? any VaultTransferring
+        self.autoTyper = vaultLoader as? any VaultAutoTyping
         self.biometricCredentialStore = biometricCredentialStore
         self.settingsStore = settingsStore
         self.userDefaults = userDefaults
@@ -741,9 +745,11 @@ public final class AppViewModel {
         registerUserActivity()
     }
 
-    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws {
+    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?, autoType: VaultGroupAutoType? = nil) async throws {
         if let target = additionalTarget(forPath: parentPath) {
-            try await editAdditional(target.key) { try await $0.createGroup(inParentPath: target.localPath, title: title, iconID: iconID) }
+            try await editAdditional(target.key) {
+                try await $0.createGroup(inParentPath: target.localPath, title: title, iconID: iconID, autoType: autoType)
+            }
             return
         }
         guard let vaultEditor else {
@@ -753,16 +759,18 @@ public final class AppViewModel {
             throw VaultError.parseFailure(details: L("Vault is not unlocked."))
         }
 
-        let updatedVault = try await vaultEditor.createGroup(inParentPath: parentPath, title: title, iconID: iconID)
+        let updatedVault = try await vaultEditor.createGroup(inParentPath: parentPath, title: title, iconID: iconID, autoType: autoType)
         syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         await absorbPendingMerge()
         registerUserActivity()
     }
 
-    public func updateGroup(path: String, title: String, iconID: Int?) async throws {
+    public func updateGroup(path: String, title: String, iconID: Int?, autoType: VaultGroupAutoType? = nil) async throws {
         if let target = additionalTarget(forPath: path) {
-            try await editAdditional(target.key) { try await $0.updateGroup(path: target.localPath, title: title, iconID: iconID) }
+            try await editAdditional(target.key) {
+                try await $0.updateGroup(path: target.localPath, title: title, iconID: iconID, autoType: autoType)
+            }
             return
         }
         guard let vaultEditor else {
@@ -772,7 +780,7 @@ public final class AppViewModel {
             throw VaultError.parseFailure(details: L("Vault is not unlocked."))
         }
 
-        let updatedVault = try await vaultEditor.updateGroup(path: path, title: title, iconID: iconID)
+        let updatedVault = try await vaultEditor.updateGroup(path: path, title: title, iconID: iconID, autoType: autoType)
         syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         await absorbPendingMerge()
@@ -1025,8 +1033,8 @@ public final class AppViewModel {
         syncFailureMessage = nil
     }
 
-    public func requestReveal(_ entryIDs: [UUID]) {
-        revealRequest = RevealRequest(entryIDs: entryIDs)
+    public func requestReveal(_ entryIDs: [UUID], editingAutoType: Bool = false) {
+        revealRequest = RevealRequest(entryIDs: entryIDs, editsAutoType: editingAutoType)
     }
 
     public func consumeRevealRequest() {
@@ -1435,6 +1443,11 @@ public final class AppViewModel {
         await absorbPendingMerge()
         registerUserActivity()
         return updatedVault.entries.first { $0.id == id }?.otp.map { $0.counter &- 1 }
+    }
+
+    /// Evaluates a placeholder Auto-Type can't fill from the entry itself (`REF:…`), in the main database.
+    func resolveAutoTypePlaceholder(_ placeholder: String, entryID: UUID) async -> String? {
+        await autoTyper?.resolveAutoTypePlaceholder(placeholder, entryID: entryID)
     }
 
     public func recordEntryUsage(id: UUID) {

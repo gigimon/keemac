@@ -16,6 +16,13 @@ public struct QuickAccessShortcut: Codable, Equatable, Sendable {
         keyName: "K"
     )
 
+    /// ⌃⌥⌘A, MacPass's Auto-Type shortcut.
+    public static let autoTypeDefault = QuickAccessShortcut(
+        keyCode: UInt32(kVK_ANSI_A),
+        modifiers: NSEvent.ModifierFlags([.control, .option, .command]).rawValue,
+        keyName: "A"
+    )
+
     public init(keyCode: UInt32, modifiers: UInt, keyName: String) {
         self.keyCode = keyCode
         self.modifiers = modifiers
@@ -139,15 +146,20 @@ public enum QuickAccessUnlockDuration: Int, CaseIterable, Codable, Sendable {
     }
 }
 
-/// One system-wide hotkey through Carbon's `RegisterEventHotKey`, which needs no Accessibility permission.
+/// A system-wide hotkey through Carbon's `RegisterEventHotKey`, which needs no Accessibility permission.
+/// Each instance has its own ID, so Quick Access and Auto-Type can both hold one.
 @MainActor
 final class GlobalHotKey {
-    private static var handler: (() -> Void)?
+    private static var handlers: [UInt32: () -> Void] = [:]
     private static var eventHandlerRef: EventHandlerRef?
+    private static var nextID: UInt32 = 1
+    private let id: UInt32
     private var hotKeyRef: EventHotKeyRef?
 
     init(onPress: @escaping () -> Void) {
-        Self.handler = onPress
+        id = Self.nextID
+        Self.nextID += 1
+        Self.handlers[id] = onPress
         Self.installEventHandlerIfNeeded()
     }
 
@@ -155,9 +167,9 @@ final class GlobalHotKey {
     @discardableResult
     func register(_ shortcut: QuickAccessShortcut) -> Bool {
         unregister()
-        let id = EventHotKeyID(signature: OSType(0x4B4D_5141), id: 1) // "KMQA"
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4B4D_5141), id: id) // "KMQA"
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.carbonModifiers, id, GetApplicationEventTarget(), 0, &ref)
+        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.carbonModifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else {
             return false
         }
@@ -177,9 +189,20 @@ final class GlobalHotKey {
             return
         }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+            var hotKeyID = EventHotKeyID()
+            let status = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &hotKeyID
+            )
+            let id = status == noErr ? hotKeyID.id : 0
             Task { @MainActor in
-                GlobalHotKey.handler?()
+                GlobalHotKey.handlers[id]?()
             }
             return noErr
         }, 1, &spec, nil, &eventHandlerRef)

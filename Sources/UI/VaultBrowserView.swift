@@ -142,8 +142,8 @@ public struct VaultBrowserView: View {
     private let onExternalChangeSeen: (UUID) -> Void
     private let onRetrySync: () -> Void
     private let onDismissSyncFailure: () -> Void
-    private let onCreateGroup: @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?) async throws -> Void
-    private let onUpdateGroup: @Sendable (_ path: String, _ title: String, _ iconID: Int?) async throws -> Void
+    private let onCreateGroup: @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?, _ autoType: VaultGroupAutoType?) async throws -> Void
+    private let onUpdateGroup: @Sendable (_ path: String, _ title: String, _ iconID: Int?, _ autoType: VaultGroupAutoType?) async throws -> Void
     private let onDeleteGroup: @Sendable (_ path: String) async throws -> Void
     private let onCreateEntry: @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void
     private let onUpdateEntry: @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void
@@ -169,6 +169,8 @@ public struct VaultBrowserView: View {
     @State private var expandedGroupPaths: Set<String>
     @State private var selectedEntryID: VaultEntry.ID?
     @State private var editingEntryID: VaultEntry.ID?
+    /// Opened from an Auto-Type error: its editor starts with the Auto-Type section expanded.
+    @State private var autoTypeEditEntryID: VaultEntry.ID?
     @State private var newEntryRequest: NewEntryRequest?
     @State private var groupEditorMode: GroupEditorMode?
     @State private var historyEntry: VaultEntry?
@@ -222,8 +224,8 @@ public struct VaultBrowserView: View {
         onDismissSyncFailure: @escaping () -> Void = {},
         initialSidebarSelectionID: String?,
         initialExpandedGroupPaths: Set<String>,
-        onCreateGroup: @escaping @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?) async throws -> Void,
-        onUpdateGroup: @escaping @Sendable (_ path: String, _ title: String, _ iconID: Int?) async throws -> Void,
+        onCreateGroup: @escaping @Sendable (_ parentPath: String?, _ title: String, _ iconID: Int?, _ autoType: VaultGroupAutoType?) async throws -> Void,
+        onUpdateGroup: @escaping @Sendable (_ path: String, _ title: String, _ iconID: Int?, _ autoType: VaultGroupAutoType?) async throws -> Void,
         onDeleteGroup: @escaping @Sendable (_ path: String) async throws -> Void,
         onCreateEntry: @escaping @Sendable (_ groupPath: String?, _ form: VaultEntryForm) async throws -> Void,
         onUpdateEntry: @escaping @Sendable (_ id: UUID, _ form: VaultEntryForm) async throws -> Void,
@@ -355,9 +357,16 @@ public struct VaultBrowserView: View {
             .environment(\.fieldCompletions, FieldCompletions(entries: vault.entries))
         }
         .sheet(item: $groupEditorMode) { mode in
-            GroupEditorSheet(mode: mode, rootPath: rootPath(ofDatabase: DatabaseScope.key(of: mode.parentPath)), isSaving: isPerformingMutation) { title, iconID in
+            let autoType = groupAutoType(for: mode)
+            GroupEditorSheet(
+                mode: mode,
+                rootPath: rootPath(ofDatabase: DatabaseScope.key(of: mode.parentPath)),
+                autoType: autoType.settings,
+                autoTypeInheritance: autoType.inheritance,
+                isSaving: isPerformingMutation
+            ) { title, iconID, autoType in
                 Task {
-                    await performGroupEditorAction(mode: mode, title: title, iconID: iconID)
+                    await performGroupEditorAction(mode: mode, title: title, iconID: iconID, autoType: autoType)
                 }
             }
         }
@@ -448,6 +457,11 @@ public struct VaultBrowserView: View {
             }
             handleReveal(request)
         }
+        .onChange(of: editingEntryID) { _, id in
+            if id == nil {
+                autoTypeEditEntryID = nil
+            }
+        }
         .onChange(of: passwordHealthRequest, initial: true) { _, request in
             guard let request else {
                 return
@@ -530,6 +544,10 @@ public struct VaultBrowserView: View {
             selectedEntryID = entries.first?.id ?? filteredEntries.first?.id
         } else if entries.count == 1, let entry = entries.first {
             revealEntry(entry)
+            if request.editsAutoType, !entry.isTrashed {
+                autoTypeEditEntryID = entry.id
+                startEditing(entry)
+            }
         } else if !entries.isEmpty {
             searchText = ""
             selectedSidebarItemID = LibrarySelection.changedElsewhere.id
@@ -1518,6 +1536,7 @@ public struct VaultBrowserView: View {
                         referenceTitle: { id in vault.entries.first { $0.id == id }?.title },
                         referenceEntries: vault.entries.filter { DatabaseScope.key(of: $0.groupPath) == DatabaseScope.key(of: entry.groupPath) },
                         onOpenEntry: openLinkedEntry,
+                        expandsAutoType: autoTypeEditEntryID == entry.id,
                         onConfirm: { title, message, confirmTitle, action in
                             confirmRequest = ConfirmRequest(title: title, message: message, confirmTitle: confirmTitle) {
                                 confirmRequest = nil
@@ -2096,13 +2115,28 @@ public struct VaultBrowserView: View {
         }
     }
 
-    private func performGroupEditorAction(mode: GroupEditorMode, title: String, iconID: Int?) async {
+    /// The group's own Auto-Type settings and what it inherits; a new group inherits from its parent.
+    private func groupAutoType(for mode: GroupEditorMode) -> (settings: VaultGroupAutoType, inheritance: VaultAutoTypeInheritance) {
+        switch mode {
+        case .edit(let path, _, _):
+            let group = vault.groups.first { $0.path == path }
+            return (group?.autoType ?? .default, group?.autoTypeInheritance ?? .root)
+        case .create(let parentPath):
+            let parentPath = parentPath ?? rootPath
+            guard let parent = vault.groups.first(where: { $0.path == parentPath }) else {
+                return (.default, .root)
+            }
+            return (.default, parent.autoTypeInheritance.applying(parent.autoType, title: parent.title))
+        }
+    }
+
+    private func performGroupEditorAction(mode: GroupEditorMode, title: String, iconID: Int?, autoType: VaultGroupAutoType) async {
         let succeeded = await runMutation {
             switch mode {
             case .create(let parentPath):
-                try await onCreateGroup(parentPath, title, iconID)
+                try await onCreateGroup(parentPath, title, iconID, autoType)
             case .edit(let path, _, _):
-                try await onUpdateGroup(path, title, iconID)
+                try await onUpdateGroup(path, title, iconID, autoType)
             }
         }
         guard succeeded else {

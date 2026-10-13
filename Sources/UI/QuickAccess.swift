@@ -22,6 +22,8 @@ public final class QuickAccessController: NSObject, NSWindowDelegate {
     private var unlockedHere = false
     private var relockTask: Task<Void, Never>?
     private var lockStateObserver: NSObjectProtocol?
+    /// The panel closed to let Auto-Type type; locking waits until it is done.
+    private var isAutoTyping = false
 
     override private init() {}
 
@@ -78,6 +80,24 @@ public final class QuickAccessController: NSObject, NSWindowDelegate {
     }
 
     public func show() {
+        show(autoTypeTarget: nil)
+    }
+
+    /// Opens the panel to pick the entry Auto-Type types into `target`.
+    func showAutoType(target: AutoTypeTarget) {
+        show(autoTypeTarget: target)
+    }
+
+    /// Auto-Type finished typing; a database unlocked from the panel may lock now.
+    func autoTypeDidFinish() {
+        guard isAutoTyping else {
+            return
+        }
+        isAutoTyping = false
+        scheduleRelock()
+    }
+
+    private func show(autoTypeTarget: AutoTypeTarget?) {
         guard let viewModel else {
             return
         }
@@ -89,11 +109,13 @@ public final class QuickAccessController: NSObject, NSWindowDelegate {
             suggestionAppName: NSWorkspace.shared.frontmostApplication.flatMap { app in
                 app.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : app.localizedName
             },
+            autoTypeTarget: autoTypeTarget,
             actions: QuickAccessModel.Actions(
                 close: { [weak self] in self?.close() },
                 didUnlock: { [weak self] in self?.unlockedHere = true },
                 refocus: { [weak self] in self?.panel?.makeKey() },
-                showInMainWindow: { [weak self] id in self?.showInMainWindow(entryID: id) }
+                showInMainWindow: { [weak self] id in self?.showInMainWindow(entryID: id) },
+                autoType: { [weak self] entry in self?.autoType(entry, into: autoTypeTarget) }
             )
         )
         self.model = model
@@ -118,7 +140,18 @@ public final class QuickAccessController: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
         panel.contentView = nil
         model = nil
-        scheduleRelock()
+        if !isAutoTyping {
+            scheduleRelock()
+        }
+    }
+
+    private func autoType(_ entry: VaultEntry, into target: AutoTypeTarget?) {
+        guard let target else {
+            return
+        }
+        isAutoTyping = true
+        close()
+        AutoTypeController.shared.type(entry, into: target)
     }
 
     public func windowDidResignKey(_ notification: Notification) {
@@ -231,11 +264,14 @@ final class QuickAccessModel {
         let didUnlock: () -> Void
         let refocus: () -> Void
         let showInMainWindow: (UUID) -> Void
+        let autoType: (VaultEntry) -> Void
     }
 
     let viewModel: AppViewModel
     /// The app that was in front when Quick Access opened; its entries come first.
     let suggestionAppName: String?
+    /// Set in Auto-Type mode: the window the picked entry is typed into.
+    let autoTypeTarget: AutoTypeTarget?
     var query = "" {
         didSet {
             selectedIndex = 0
@@ -249,10 +285,70 @@ final class QuickAccessModel {
     private(set) var focusRequest = 0
     private let actions: Actions
 
-    init(viewModel: AppViewModel, suggestionAppName: String?, actions: Actions) {
+    init(viewModel: AppViewModel, suggestionAppName: String?, autoTypeTarget: AutoTypeTarget? = nil, actions: Actions) {
         self.viewModel = viewModel
         self.suggestionAppName = suggestionAppName
+        self.autoTypeTarget = autoTypeTarget
         self.actions = actions
+    }
+
+    var isAutoType: Bool {
+        autoTypeTarget != nil
+    }
+
+    /// Entries for the Auto-Type window, filtered by the search text.
+    var autoTypeMatches: [AutoTypeMatch] {
+        guard let vault, let target = autoTypeTarget else {
+            return []
+        }
+        let matches = AutoTypeMatcher.matches(in: vault.entries, window: target.window)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return matches
+        }
+        let search = VaultEntrySearch(trimmed)
+        return matches.filter { search.matches($0.entry, context: searchContext) }
+    }
+
+    /// While searching in Auto-Type mode: other entries that can be typed.
+    var autoTypeOthers: [VaultEntry] {
+        guard let vault, isAutoType else {
+            return []
+        }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return []
+        }
+        let matched = Set(autoTypeMatches.map(\.id))
+        let search = VaultEntrySearch(trimmed)
+        return Array(
+            AutoTypeMatcher.candidates(in: vault.entries)
+                .filter { !matched.contains($0.id) && search.matches($0, context: searchContext) }
+                .sorted(by: Self.byUsage)
+                .prefix(6)
+        )
+    }
+
+    /// Does any entry match the window, before the search text filters them?
+    var hasAutoTypeMatches: Bool {
+        guard let vault, let target = autoTypeTarget else {
+            return false
+        }
+        return !AutoTypeMatcher.matches(in: vault.entries, window: target.window).isEmpty
+    }
+
+    private var searchContext: VaultEntrySearch.Context {
+        let favorites = viewModel.favoriteEntryIDs
+        return VaultEntrySearch.Context(isFavorite: { favorites.contains($0) })
+    }
+
+    /// Matches, then other entries: the rows ↑ and ↓ move through.
+    private var autoTypeRows: [VaultEntry] {
+        autoTypeMatches.map(\.entry) + autoTypeOthers
+    }
+
+    func autoType(_ entry: VaultEntry) {
+        actions.autoType(entry)
     }
 
     var vault: LoadedVault? {
@@ -315,7 +411,7 @@ final class QuickAccessModel {
     }
 
     var selectedEntry: VaultEntry? {
-        let results = results
+        let results = isAutoType ? autoTypeRows : results
         return results.indices.contains(selectedIndex) ? results[selectedIndex] : nil
     }
 
@@ -345,6 +441,12 @@ final class QuickAccessModel {
         case 36, 76: // Return, Enter
             if vault == nil {
                 unlockWithPassword()
+            } else if isAutoType {
+                if let entry = selectedEntry {
+                    autoType(entry)
+                } else {
+                    NSSound.beep()
+                }
             } else if flags.contains(.command) {
                 selectedEntry.map { actions.showInMainWindow($0.id) }
             } else {
@@ -359,10 +461,10 @@ final class QuickAccessModel {
             return false
         }
         switch key {
-        case "u" where vault != nil:
+        case "u" where vault != nil && !isAutoType:
             copy(.username)
             return true
-        case "t" where vault != nil:
+        case "t" where vault != nil && !isAutoType:
             copy(.oneTimeCode)
             return true
         // KeeMac isn't the active app, so the Edit menu can't route these to the text field.
@@ -482,13 +584,19 @@ final class QuickAccessModel {
         if viewModel.loadState.isUnlocked {
             actions.didUnlock()
             query = ""
+            // Auto-Type waited for the database: one match types right away.
+            let matches = autoTypeMatches
+            if isAutoType, matches.count == 1, let entry = matches.first?.entry {
+                autoType(entry)
+                return
+            }
         }
         actions.refocus()
         focusRequest += 1
     }
 
     private func moveSelection(by offset: Int) {
-        let count = results.count
+        let count = isAutoType ? autoTypeRows.count : results.count
         guard count > 0 else {
             return
         }
@@ -502,7 +610,7 @@ final class QuickAccessModel {
         }
     }
 
-    private static func byUsage(_ lhs: VaultEntry, _ rhs: VaultEntry) -> Bool {
+    static func byUsage(_ lhs: VaultEntry, _ rhs: VaultEntry) -> Bool {
         if lhs.usageCount != rhs.usageCount {
             return lhs.usageCount > rhs.usageCount
         }
@@ -535,10 +643,18 @@ struct QuickAccessView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.vault != nil {
-                searchContent
-            } else {
+            if let target = model.autoTypeTarget {
+                autoTypeHeader(target)
+                Rectangle()
+                    .fill(KM.hairline)
+                    .frame(height: 0.5)
+            }
+            if model.vault == nil {
                 lockedContent
+            } else if model.isAutoType {
+                autoTypeContent
+            } else {
+                searchContent
             }
         }
         .frame(width: Self.size.width, height: Self.size.height)
@@ -757,6 +873,177 @@ struct QuickAccessView: View {
         .lineLimit(1)
     }
 
+    // MARK: Auto-Type
+
+    private func autoTypeHeader(_ target: AutoTypeTarget) -> some View {
+        HStack(spacing: 10) {
+            Group {
+                if let icon = target.appIcon {
+                    Image(nsImage: icon)
+                        .resizable()
+                } else {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 18))
+                        .foregroundStyle(KM.textSecondary)
+                }
+            }
+            .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(L("Type into").uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(KM.textTertiary)
+                HStack(spacing: 4) {
+                    Text(target.window.appName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .layoutPriority(1)
+                    if !target.window.place.isEmpty {
+                        Text("— \(target.window.place)")
+                            .font(.system(size: 13))
+                            .foregroundStyle(KM.textSecondary)
+                    }
+                }
+                .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("autoType.target")
+            Spacer(minLength: 8)
+            Text(L("↩ Type · esc Cancel"))
+                .font(.system(size: 11))
+                .foregroundStyle(KM.textTertiary)
+                .fixedSize()
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+    }
+
+    private var autoTypeContent: some View {
+        let matches = model.autoTypeMatches
+        let others = model.autoTypeOthers
+        let query = model.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(KM.textSecondary)
+                TextField(L("Search entries"), text: $model.query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15))
+                    .focused($isFieldFocused)
+                    .accessibilityLabel(L("Search entries"))
+                    .accessibilityIdentifier("autoType.search")
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+
+            Rectangle()
+                .fill(KM.hairline)
+                .frame(height: 0.5)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        sectionLabel(L("Matches"))
+                        if matches.isEmpty {
+                            autoTypeEmptyText(
+                                model.hasAutoTypeMatches && !query.isEmpty
+                                    ? L("No matches for “\(query)”")
+                                    : L("No entries match this window — search to pick one")
+                            )
+                        }
+                        ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
+                            autoTypeRow(match.entry, reason: match.reason, isSelected: index == model.selectedIndex)
+                                .id(match.entry.id)
+                                .onTapGesture {
+                                    model.selectedIndex = index
+                                    model.autoType(match.entry)
+                                }
+                        }
+                        if !query.isEmpty {
+                            sectionLabel(L("Other entries"))
+                                .padding(.top, 6)
+                            if others.isEmpty {
+                                autoTypeEmptyText(L("No other entries for “\(query)”"))
+                            }
+                            ForEach(Array(others.enumerated()), id: \.element.id) { offset, entry in
+                                let index = matches.count + offset
+                                autoTypeRow(entry, reason: nil, isSelected: index == model.selectedIndex)
+                                    .id(entry.id)
+                                    .onTapGesture {
+                                        model.selectedIndex = index
+                                        model.autoType(entry)
+                                    }
+                            }
+                        }
+                    }
+                    .padding(6)
+                }
+                .onChange(of: model.selectedIndex) { _, index in
+                    let ids = matches.map(\.entry.id) + others.map(\.id)
+                    if ids.indices.contains(index) {
+                        proxy.scrollTo(ids[index])
+                    }
+                }
+            }
+        }
+    }
+
+    private func autoTypeEmptyText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(KM.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .accessibilityIdentifier("autoType.empty")
+    }
+
+    private func autoTypeRow(_ entry: VaultEntry, reason: AutoTypeMatchReason?, isSelected: Bool) -> some View {
+        let supportsTypes = model.vault?.summary.supportsEntryTypes ?? false
+        return HStack(spacing: 10) {
+            EntryTile(entry: entry, supportsTypes: supportsTypes, size: 28, cornerRadius: 7, fontSize: 13)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.title.isEmpty ? L("Untitled") : entry.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.white : KM.textPrimary)
+                    .lineLimit(1)
+                Text(entry.username.flatMap { $0.isEmpty ? nil : $0 } ?? "—")
+                    .font(.system(size: 11))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.82) : KM.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let reason {
+                matchBadge(reason, isSelected: isSelected)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: Self.rowHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? KM.accent : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("autoType.entry.\(entry.title)")
+    }
+
+    private func matchBadge(_ reason: AutoTypeMatchReason, isSelected: Bool) -> some View {
+        let (title, color): (String, Color) = switch reason {
+        case .window: (L("autoType.badge.window", default: "Window"), KM.accent)
+        case .url: (L("autoType.badge.url", default: "URL"), KM.success)
+        case .title: (L("autoType.badge.title", default: "Title"), KM.textSecondary)
+        }
+        return Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.white : color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(isSelected ? Color.white.opacity(0.22) : color.opacity(0.14))
+            )
+    }
+
     // MARK: Locked
 
     @ViewBuilder
@@ -769,7 +1056,7 @@ struct QuickAccessView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
                     .padding(.top, 12)
-                Text(L("Quick Access needs the database unlocked"))
+                Text(model.isAutoType ? L("Unlock to type into \(model.autoTypeTarget?.window.appName ?? "")") : L("Quick Access needs the database unlocked"))
                     .font(.system(size: 12))
                     .foregroundStyle(KM.textSecondary)
                     .padding(.top, 2)
@@ -803,7 +1090,7 @@ struct QuickAccessView: View {
                         Text(message)
                             .foregroundStyle(KM.danger)
                     } else {
-                        Text(L("Press ↩ to unlock"))
+                        Text(model.isAutoType ? L("Press ↩ to unlock and type") : L("Press ↩ to unlock"))
                             .foregroundStyle(KM.textTertiary)
                     }
                 }

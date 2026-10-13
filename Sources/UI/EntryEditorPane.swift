@@ -36,6 +36,7 @@ struct EntryEditorPane: View {
     @State private var qrCodeChoices: [OTPQRCode] = []
     @State private var isOTPDropTargeted = false
     @State private var showAppearance = false
+    @State private var showsAutoType: Bool
     @State private var revealPassword = true
     @State private var validationMessage: String?
     @State private var baselineModifiedAt: Date?
@@ -72,6 +73,7 @@ struct EntryEditorPane: View {
         referenceTitle: @escaping (UUID) -> String? = { _ in nil },
         referenceEntries: [VaultEntry] = [],
         onOpenEntry: @escaping (UUID) -> Void = { _ in },
+        expandsAutoType: Bool = false,
         onConfirm: @escaping (_ title: String, _ message: String, _ confirmTitle: String, _ action: @escaping () -> Void) -> Void
     ) {
         self.referenceEntries = referenceEntries
@@ -89,6 +91,7 @@ struct EntryEditorPane: View {
         _otpInput = State(initialValue: form.otp?.secret ?? "")
         _showOTPOptions = State(initialValue: (form.otp?.kind ?? .totp) != .totp)
         _baselineModifiedAt = State(initialValue: entry.modifiedAt)
+        _showsAutoType = State(initialValue: expandsAutoType)
     }
 
     var body: some View {
@@ -350,6 +353,17 @@ struct EntryEditorPane: View {
 
                     row(L("ssh agent"), alignTop: true) {
                         SSHAgentEditorSection(form: $form)
+                    }
+
+                    row(L("auto-type"), alignTop: true) {
+                        AutoTypeEditorSection(
+                            settings: Binding(
+                                get: { form.autoType ?? .default },
+                                set: { form.autoType = $0 }
+                            ),
+                            inheritance: entry.autoTypeInheritance,
+                            isExpanded: $showsAutoType
+                        )
                     }
 
                     row(L("custom fields"), alignTop: !form.customFields.isEmpty) {

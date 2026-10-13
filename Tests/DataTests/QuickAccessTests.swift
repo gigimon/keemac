@@ -73,7 +73,7 @@ final class QuickAccessTests: XCTestCase {
         await model.unlock(masterPassword: "pw")
         XCTAssertTrue(model.loadState.isUnlocked)
 
-        let actions = QuickAccessModel.Actions(close: {}, didUnlock: {}, refocus: {}, showInMainWindow: { _ in })
+        let actions = QuickAccessModel.Actions(close: {}, didUnlock: {}, refocus: {}, showInMainWindow: { _ in }, autoType: { _ in })
         let quickAccess = QuickAccessModel(viewModel: model, suggestionAppName: "Slack", actions: actions)
         XCTAssertTrue(quickAccess.hasAppSuggestions)
         XCTAssertEqual(quickAccess.suggestionCount, 1)

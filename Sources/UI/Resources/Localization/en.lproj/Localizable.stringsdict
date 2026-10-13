@@ -946,5 +946,21 @@
 			<string>≈ %lld bits</string>
 		</dict>
 	</dict>
+	<key>%lld window associations</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld window association</string>
+			<key>other</key>
+			<string>%lld window associations</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

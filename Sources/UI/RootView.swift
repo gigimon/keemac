@@ -90,11 +90,11 @@ public struct RootView: View {
                     onDismissSyncFailure: { viewModel.dismissSyncFailure() },
                     initialSidebarSelectionID: viewModel.browserSidebarSelectionID(for: viewModel.selectedVaultURL),
                     initialExpandedGroupPaths: viewModel.browserExpandedGroupPaths(for: viewModel.selectedVaultURL),
-                    onCreateGroup: { parentPath, title, iconID in
-                        try await viewModel.createGroup(inParentPath: parentPath, title: title, iconID: iconID)
+                    onCreateGroup: { parentPath, title, iconID, autoType in
+                        try await viewModel.createGroup(inParentPath: parentPath, title: title, iconID: iconID, autoType: autoType)
                     },
-                    onUpdateGroup: { path, title, iconID in
-                        try await viewModel.updateGroup(path: path, title: title, iconID: iconID)
+                    onUpdateGroup: { path, title, iconID, autoType in
+                        try await viewModel.updateGroup(path: path, title: title, iconID: iconID, autoType: autoType)
                     },
                     onDeleteGroup: { path in
                         try await viewModel.deleteGroup(path: path)

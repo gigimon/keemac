@@ -158,6 +158,7 @@ struct KeeMacApp: App {
         MainWindowController.shared.configure(viewModel: viewModel)
         BrowserIntegrationController.shared.configure(viewModel: viewModel)
         QuickAccessController.shared.configure(viewModel: viewModel)
+        AutoTypeController.shared.configure(viewModel: viewModel)
         SSHAgentController.shared.configure(viewModel: viewModel)
         KeeMacAppDelegate.viewModel = viewModel
         if let vaultURL = UITesting.vaultURL {
@@ -244,6 +245,13 @@ struct KeeMacApp: App {
                     postCommand(AppCommand.lockVault)
                 }
                 .keyboardShortcut("l", modifiers: [.command])
+
+                if UITesting.isActive {
+                    // The global shortcut is off in UI tests; this stands in for it.
+                    Button("Perform Auto-Type") {
+                        AutoTypeController.shared.performForUITesting()
+                    }
+                }
             }
         }
     }

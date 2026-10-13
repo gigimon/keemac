@@ -75,23 +75,35 @@ enum GroupEditorMode: Identifiable {
 struct GroupEditorSheet: View {
     let mode: GroupEditorMode
     let rootPath: String
+    /// What the group inherits from the groups above it.
+    let autoTypeInheritance: VaultAutoTypeInheritance
     let isSaving: Bool
-    let onSubmit: (_ title: String, _ iconID: Int?) -> Void
+    let onSubmit: (_ title: String, _ iconID: Int?, _ autoType: VaultGroupAutoType) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var iconID: Int?
+    @State private var autoType: VaultGroupAutoType
     @FocusState private var isNameFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
 
-    init(mode: GroupEditorMode, rootPath: String, isSaving: Bool, onSubmit: @escaping (_ title: String, _ iconID: Int?) -> Void) {
+    init(
+        mode: GroupEditorMode,
+        rootPath: String,
+        autoType: VaultGroupAutoType = .default,
+        autoTypeInheritance: VaultAutoTypeInheritance = .root,
+        isSaving: Bool,
+        onSubmit: @escaping (_ title: String, _ iconID: Int?, _ autoType: VaultGroupAutoType) -> Void
+    ) {
         self.mode = mode
         self.rootPath = rootPath
+        self.autoTypeInheritance = autoTypeInheritance
         self.isSaving = isSaving
         self.onSubmit = onSubmit
         _title = State(initialValue: mode.initialTitle)
         _iconID = State(initialValue: mode.initialIconID)
+        _autoType = State(initialValue: autoType)
     }
 
     var body: some View {
@@ -151,6 +163,9 @@ struct GroupEditorSheet: View {
             }
             .padding(.top, 14)
 
+            autoTypeSection
+                .padding(.top, 16)
+
             HStack(spacing: 8) {
                 Spacer()
                 Button(L("Cancel")) {
@@ -164,7 +179,7 @@ struct GroupEditorSheet: View {
                     .buttonStyle(KMButtonStyle(kind: .primary, height: 30, horizontalPadding: 18, fontWeight: .semibold))
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("groupEditor.submit")
-                    .disabled(trimmedTitle.isEmpty || isSaving)
+                    .disabled(trimmedTitle.isEmpty || isSaving || autoTypeError)
             }
             .padding(.top, 20)
         }
@@ -180,6 +195,70 @@ struct GroupEditorSheet: View {
 
     private var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var autoTypeError: Bool {
+        autoType.sequence.flatMap(AutoTypeSequence.validate) != nil
+    }
+
+    private var autoTypeSubtitle: String {
+        switch autoType.enabled {
+        case .inherit:
+            let state = autoTypeInheritance.isEnabled ? L("autoType.state.on", default: "on") : L("autoType.state.off", default: "off")
+            if let source = autoTypeInheritance.enabledSource {
+                return L("Inherited: \(state) from group \(source)")
+            }
+            return L("Inherited: \(state) (default)")
+        case .on:
+            return L("On for entries in this group")
+        case .off:
+            return L("Off for entries in this group")
+        }
+    }
+
+    private var autoTypeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Auto-Type"))
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(autoTypeSubtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(KM.textSecondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                KMSegmentedControl(
+                    options: [
+                        (VaultInheritedFlag.inherit, L("Inherit")),
+                        (VaultInheritedFlag.on, L("autoType.flag.on", default: "On")),
+                        (VaultInheritedFlag.off, L("autoType.flag.off", default: "Off"))
+                    ],
+                    selection: $autoType.enabled,
+                    fontSize: 12,
+                    horizontalPadding: 10,
+                    identifierPrefix: "groupEditor.autoType.enabled"
+                )
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("Default sequence"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(KM.textSecondary)
+                AutoTypeSequenceEditor(
+                    sequence: $autoType.sequence,
+                    inherited: autoTypeInheritance.sequence,
+                    inheritedSource: autoTypeInheritance.sequenceSource.map { L("From group \($0)") }
+                        ?? L("autoType.source.default", default: "Default"),
+                    identifierPrefix: "groupEditor.autoType"
+                )
+            }
+            .opacity(autoType.enabled == .off ? 0.4 : 1)
+            .disabled(autoType.enabled == .off)
+        }
+        .padding(.top, 14)
+        .overlay(alignment: .top) {
+            Rectangle().fill(KM.hairline).frame(height: 0.5)
+        }
     }
 
     private var pathPreview: String {
@@ -208,10 +287,10 @@ struct GroupEditorSheet: View {
     }
 
     private func submit() {
-        guard !trimmedTitle.isEmpty, !isSaving else {
+        guard !trimmedTitle.isEmpty, !isSaving, !autoTypeError else {
             return
         }
-        onSubmit(trimmedTitle, iconID)
+        onSubmit(trimmedTitle, iconID, autoType)
     }
 }
 

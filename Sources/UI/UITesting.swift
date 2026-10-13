@@ -1,4 +1,5 @@
 import AppKit
+import Domain
 import Foundation
 
 /// Launch mode for the XCUITest suite (`UITests/`), turned on with `KEEMAC_UI_TESTING=1`.
@@ -19,6 +20,21 @@ public enum UITesting {
     /// Where "New Database" saves by default, instead of Documents.
     static var newDatabaseDirectory: URL? {
         environment("KEEMAC_UI_TEST_NEW_DATABASE_DIRECTORY").map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// Accessibility as Auto-Type sees it; `KEEMAC_UI_TEST_AUTOTYPE_PERMISSION=denied` takes it away.
+    static var autoTypePermissionGranted: Bool {
+        environment("KEEMAC_UI_TEST_AUTOTYPE_PERMISSION") != "denied"
+    }
+
+    /// The window Auto-Type pretends is in front (`KEEMAC_UI_TEST_AUTOTYPE_TITLE`, `…_URL`).
+    static var autoTypeWindow: AutoTypeWindow {
+        AutoTypeWindow(
+            appName: "Safari",
+            bundleIdentifier: "com.apple.Safari",
+            title: environment("KEEMAC_UI_TEST_AUTOTYPE_TITLE") ?? "Sign in",
+            url: environment("KEEMAC_UI_TEST_AUTOTYPE_URL")
+        )
     }
 
     /// Secrets are copied here instead of the general pasteboard; tests read it by name.
