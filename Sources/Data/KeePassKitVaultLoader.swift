@@ -5,7 +5,7 @@ import Foundation
 import KeePassKit
 import UndoSupport
 
-public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionControlling, VaultDatabaseManaging, VaultCreating, VaultSynchronizing, VaultBrowserAccessing, VaultUndoing, VaultTransferring, VaultTransferringBetweenDatabases {
+public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionControlling, VaultDatabaseManaging, VaultCreating, VaultSynchronizing, VaultBrowserAccessing, VaultUndoing, VaultTransferring, VaultTransferringBetweenDatabases, VaultAutoTyping {
     private final class TreeEditingDelegate: NSObject, KPKTreeDelegate {
         let undoStack: KMUndoStack
         /// Set while merging: KeePassKit gets a throwaway manager, so merges never touch the user's undo steps.
@@ -331,6 +331,17 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         try save(session: currentSession)
         clearUndoIfStale()
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func resolveAutoTypePlaceholder(_ placeholder: String, entryID: UUID) async -> String? {
+        guard let currentSession = session, let entry = Self.findEntry(in: currentSession.tree, id: entryID) else {
+            return nil
+        }
+        let text = "{\(placeholder)}"
+        guard let value = text.kpk_finalValue(for: entry, options: [.skipUserInteraction, .readOnly]), value != text else {
+            return nil
+        }
+        return value
     }
 
     public func savePendingChanges() async throws {
@@ -1215,6 +1226,11 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         )
     }
 
+    /// Title and username, for matching entries across databases.
+    private static func transferKey(_ entry: KPKEntry) -> String {
+        (entry.title ?? "").trimmingCharacters(in: .whitespaces).lowercased() + "\u{1F}" + (entry.username ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
     /// Incoming entries this database already has: the same entry (same UUID) or one with the same title and username.
     public func transferConflicts(for payload: VaultTransferPayload) async throws -> [VaultTransferConflict] {
         guard let currentSession = session else {
@@ -1222,10 +1238,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
         let incoming = try KPKTree(xmlData: payload.xmlData)
         let existing = currentSession.tree.allEntries.filter { !$0.isHistory && !$0.isMeta && !$0.isTrashed }
-        func key(_ entry: KPKEntry) -> String {
-            (entry.title ?? "").trimmingCharacters(in: .whitespaces).lowercased() + "\u{1F}" + (entry.username ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-        }
-        let byKey = Dictionary(existing.map { (key($0), $0) }, uniquingKeysWith: { first, _ in first })
+        let byKey = Dictionary(existing.map { (Self.transferKey($0), $0) }, uniquingKeysWith: { first, _ in first })
 
         var conflicts: [VaultTransferConflict] = []
         for entry in incoming.allEntries where !entry.isHistory && !entry.isMeta {
@@ -1233,7 +1246,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                 continue
             }
             let sameEntry = Self.findEntry(in: currentSession.tree, id: id).flatMap { $0.isTrashed ? nil : $0 }
-            guard let match = sameEntry ?? byKey[key(entry)], let matchID = UUID(uuidString: match.uuid.uuidString) else {
+            guard let match = sameEntry ?? byKey[Self.transferKey(entry)], let matchID = UUID(uuidString: match.uuid.uuidString) else {
                 continue
             }
             conflicts.append(VaultTransferConflict(

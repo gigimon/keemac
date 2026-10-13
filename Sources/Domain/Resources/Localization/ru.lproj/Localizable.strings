@@ -7,3 +7,7 @@
 "This KDBX version is not supported yet." = "Эта версия KDBX пока не поддерживается.";
 "Unexpected vault error." = "Непредвиденная ошибка базы.";
 "Unexpected vault error: %@" = "Непредвиденная ошибка базы: %@";
+"Sequence is empty" = "Последовательность пуста";
+"Missing } in sequence" = "В последовательности не хватает }";
+"Unexpected } in sequence" = "Лишняя } в последовательности";
+"Unknown command %@" = "Неизвестная команда %@";

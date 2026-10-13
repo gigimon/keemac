@@ -22,6 +22,12 @@ public struct VaultAutoTypeAssociation: Identifiable, Equatable, Sendable {
         windowTitle == other.windowTitle && sequence == other.sequence
     }
 
+    /// The ID only keeps rows apart in lists; two associations with the same content are equal,
+    /// so entries mapped again from the same tree compare equal.
+    public static func == (lhs: VaultAutoTypeAssociation, rhs: VaultAutoTypeAssociation) -> Bool {
+        lhs.hasSameContent(as: rhs)
+    }
+
     /// KeePass matching: equal titles (ignoring case), `*` wildcards over the whole title, or `//regex//`.
     public func matches(windowTitle title: String) -> Bool {
         let pattern = windowTitle.trimmingCharacters(in: .whitespaces)
@@ -142,5 +148,44 @@ extension VaultEntry {
     /// The entry's sequence, or the one it inherits.
     public var effectiveAutoTypeSequence: String {
         autoType.sequence.flatMap { $0.isEmpty ? nil : $0 } ?? autoTypeInheritance.sequence
+    }
+}
+
+extension VaultEntry {
+    /// The value of a field placeholder (`USERNAME`, `S:Email`), from the entry's resolved fields.
+    /// Nil for placeholders that need more than the entry (`TOTP`, `REF:…`) or a missing custom field.
+    public func autoTypeValue(of placeholder: String) -> String? {
+        switch placeholder.uppercased() {
+        case "USERNAME":
+            return username ?? ""
+        case "PASSWORD":
+            return password ?? ""
+        case "TITLE":
+            return title
+        case "URL":
+            return url?.absoluteString ?? ""
+        case "NOTES":
+            return notes ?? ""
+        case "UUID":
+            return id.uuidString.replacingOccurrences(of: "-", with: "")
+        default:
+            break
+        }
+        guard placeholder.uppercased().hasPrefix("S:") else {
+            return nil
+        }
+        let name = String(placeholder.dropFirst(2))
+        let standard: [String: VaultFieldReference.Field] = [
+            VaultEntryReferences.title.lowercased(): .title,
+            VaultEntryReferences.username.lowercased(): .username,
+            VaultEntryReferences.password.lowercased(): .password,
+            VaultEntryReferences.url.lowercased(): .url,
+            VaultEntryReferences.notes.lowercased(): .notes
+        ]
+        if let field = standard[name.lowercased()] {
+            return value(of: field)
+        }
+        return customFields.first { $0.key == name }?.value
+            ?? customFields.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
     }
 }

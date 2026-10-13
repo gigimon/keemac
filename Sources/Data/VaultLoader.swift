@@ -134,6 +134,12 @@ public protocol VaultTransferringBetweenDatabases: Sendable {
     func trashTransferredEntries(_ entryIDs: [UUID], groupPath: String?) async throws -> LoadedVault
 }
 
+/// Values Auto-Type needs from KeePassKit.
+public protocol VaultAutoTyping: Sendable {
+    /// Evaluates a placeholder such as `{REF:U@I:…}` for an entry; nil when it can't be resolved.
+    func resolveAutoTypePlaceholder(_ placeholder: String, entryID: UUID) async -> String?
+}
+
 /// Undo and redo of the user's own changes in the open database (not merges, usage counts or browser settings).
 public protocol VaultUndoing: Sendable {
     func undoState() async -> VaultUndoState
