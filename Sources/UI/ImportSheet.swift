@@ -489,12 +489,13 @@ struct ImportSheet: View {
             }
         }
         let password = keePass1Password
+        let keyData = keyFileData
         isUnlockingKeePass1 = true
         isKeePass1KeyWrong = false
         Task {
             // Key derivation in KeePass 1 can take a moment; keep the sheet responsive.
             let result = await Task.detached {
-                Result { try VaultImporter.readKeePass1(fileData, password: password, keyFileData: keyFileData) }
+                Result { try VaultImporter.readKeePass1(fileData, password: password, keyFileData: keyData) }
             }.value
             isUnlockingKeePass1 = false
             switch result {
