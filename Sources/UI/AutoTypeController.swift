@@ -20,11 +20,16 @@ public final class AutoTypeController {
     private init() {}
 
     public func configure(viewModel: AppViewModel) {
-        self.viewModel = viewModel
+        attach(viewModel)
         hotKey = GlobalHotKey { [weak self] in
             self?.perform()
         }
         updateHotKey()
+    }
+
+    /// The database Auto-Type reads, without the global shortcut (tests use this alone).
+    func attach(_ viewModel: AppViewModel) {
+        self.viewModel = viewModel
     }
 
     /// Registers the shortcut from settings again (after it changed or was turned off).
