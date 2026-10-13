@@ -42,19 +42,42 @@ public struct VaultGroup: Identifiable, Equatable, Sendable {
     public let iconPNGData: Data?
     public let iconID: Int?
     public let isTrash: Bool
+    public let autoType: VaultGroupAutoType
+    /// What the group inherits from the groups above it.
+    public let autoTypeInheritance: VaultAutoTypeInheritance
 
-    public init(id: UUID = UUID(), title: String, path: String, iconPNGData: Data? = nil, iconID: Int? = nil, isTrash: Bool = false) {
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        path: String,
+        iconPNGData: Data? = nil,
+        iconID: Int? = nil,
+        isTrash: Bool = false,
+        autoType: VaultGroupAutoType = .default,
+        autoTypeInheritance: VaultAutoTypeInheritance = .root
+    ) {
         self.id = id
         self.title = title
         self.path = path
         self.iconPNGData = iconPNGData
         self.iconID = iconID
         self.isTrash = isTrash
+        self.autoType = autoType
+        self.autoTypeInheritance = autoTypeInheritance
     }
 
     /// The same group under another ID and path, for showing several databases side by side.
     public func relabeled(id: UUID, path: String) -> VaultGroup {
-        VaultGroup(id: id, title: title, path: path, iconPNGData: iconPNGData, iconID: iconID, isTrash: isTrash)
+        VaultGroup(
+            id: id,
+            title: title,
+            path: path,
+            iconPNGData: iconPNGData,
+            iconID: iconID,
+            isTrash: isTrash,
+            autoType: autoType,
+            autoTypeInheritance: autoTypeInheritance
+        )
     }
 }
 
@@ -90,6 +113,9 @@ public struct VaultEntry: Identifiable, Equatable, Sendable {
     public let references: VaultEntryReferences?
     /// Nil when the entry has no SSH agent settings.
     public let sshAgent: VaultSSHAgentSettings?
+    public let autoType: VaultAutoTypeSettings
+    /// What the entry inherits from its groups.
+    public let autoTypeInheritance: VaultAutoTypeInheritance
 
     public init(
         id: UUID = UUID(),
@@ -120,7 +146,9 @@ public struct VaultEntry: Identifiable, Equatable, Sendable {
         entryType: VaultEntryType = .login,
         templateName: String? = nil,
         references: VaultEntryReferences? = nil,
-        sshAgent: VaultSSHAgentSettings? = nil
+        sshAgent: VaultSSHAgentSettings? = nil,
+        autoType: VaultAutoTypeSettings = .default,
+        autoTypeInheritance: VaultAutoTypeInheritance = .root
     ) {
         self.id = id
         self.groupPath = groupPath
@@ -151,6 +179,8 @@ public struct VaultEntry: Identifiable, Equatable, Sendable {
         self.templateName = templateName
         self.references = references
         self.sshAgent = sshAgent
+        self.autoType = autoType
+        self.autoTypeInheritance = autoTypeInheritance
     }
 
     /// What is stored in a field: the reference text if there is one, otherwise the value.
@@ -189,7 +219,9 @@ public struct VaultEntry: Identifiable, Equatable, Sendable {
             entryType: entryType,
             templateName: templateName,
             references: references,
-            sshAgent: sshAgent
+            sshAgent: sshAgent,
+            autoType: autoType,
+            autoTypeInheritance: autoTypeInheritance
         )
     }
 }

@@ -67,6 +67,8 @@ public struct VaultEntryForm: Equatable, Sendable {
     public var templateName: String?
     /// Nil removes the entry's SSH agent settings.
     public var sshAgent: VaultSSHAgentSettings?
+    /// Nil leaves the entry's Auto-Type settings as they are (defaults for a new entry).
+    public var autoType: VaultAutoTypeSettings?
 
     public init(
         title: String,
@@ -85,7 +87,8 @@ public struct VaultEntryForm: Equatable, Sendable {
         checksPasswordQuality: Bool = true,
         entryType: VaultEntryType = .login,
         templateName: String? = nil,
-        sshAgent: VaultSSHAgentSettings? = nil
+        sshAgent: VaultSSHAgentSettings? = nil,
+        autoType: VaultAutoTypeSettings? = nil
     ) {
         self.title = title
         self.username = username
@@ -104,6 +107,7 @@ public struct VaultEntryForm: Equatable, Sendable {
         self.entryType = entryType
         self.templateName = templateName
         self.sshAgent = sshAgent
+        self.autoType = autoType
     }
 }
 

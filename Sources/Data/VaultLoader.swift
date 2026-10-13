@@ -27,13 +27,24 @@ public protocol VaultEditing: Sendable {
     func emptyTrash(ids: [UUID]) async throws -> LoadedVault
     func restoreEntry(id: UUID) async throws -> LoadedVault
     func revertEntry(id: UUID, toHistoryRevisionAt index: Int) async throws -> LoadedVault
-    func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws -> LoadedVault
-    func updateGroup(path: String, title: String, iconID: Int?) async throws -> LoadedVault
+    /// Nil `autoType` leaves the group's Auto-Type settings as they are (inherit for a new group).
+    func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?, autoType: VaultGroupAutoType?) async throws -> LoadedVault
+    func updateGroup(path: String, title: String, iconID: Int?, autoType: VaultGroupAutoType?) async throws -> LoadedVault
     func moveGroup(path: String, toParentPath parentPath: String?) async throws -> LoadedVault
     func deleteGroup(path: String) async throws -> LoadedVault
     func recordEntryUsage(id: UUID) async throws -> LoadedVault
     /// Moves an HOTP entry to its next code; saved right away, without history or undo.
     func advanceHOTPCounter(id: UUID) async throws -> LoadedVault
+}
+
+extension VaultEditing {
+    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws -> LoadedVault {
+        try await createGroup(inParentPath: parentPath, title: title, iconID: iconID, autoType: nil)
+    }
+
+    public func updateGroup(path: String, title: String, iconID: Int?) async throws -> LoadedVault {
+        try await updateGroup(path: path, title: title, iconID: iconID, autoType: nil)
+    }
 }
 
 public protocol VaultSessionControlling: Sendable {

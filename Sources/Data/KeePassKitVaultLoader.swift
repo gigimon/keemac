@@ -744,7 +744,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
-    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?) async throws -> LoadedVault {
+    public func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?, autoType: VaultGroupAutoType?) async throws -> LoadedVault {
         beginUndo()
         defer { endUndo(.newGroup) }
         guard let currentSession = session else {
@@ -764,12 +764,15 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         group.add(to: parentGroup)
         group.title = normalizedTitle
         group.iconId = iconID ?? Int(KPKEntry.defaultIcon())
+        if let autoType {
+            Self.applyGroupAutoType(autoType, to: group)
+        }
 
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
-    public func updateGroup(path: String, title: String, iconID: Int?) async throws -> LoadedVault {
+    public func updateGroup(path: String, title: String, iconID: Int?, autoType: VaultGroupAutoType?) async throws -> LoadedVault {
         beginUndo()
         defer { endUndo(.editGroup) }
         guard let currentSession = session else {
@@ -792,6 +795,9 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
 
         group.title = normalizedTitle
         group.iconId = iconID ?? Int(KPKEntry.defaultIcon())
+        if let autoType {
+            Self.applyGroupAutoType(autoType, to: group)
+        }
 
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
@@ -1416,6 +1422,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
         target.timeInfo.expires = source.timeInfo.expires
         target.timeInfo.expirationDate = source.timeInfo.expirationDate
+        applyAutoType(autoTypeSettings(of: source), to: target)
     }
 
     /// A bare Base32 secret becomes an `otpauth://` URI; URIs are kept.
@@ -2023,6 +2030,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     private static func mapTree(_ tree: KPKTree, fileURL: URL) -> LoadedVault {
         let allGroups = ([tree.root].compactMap { $0 } + tree.allGroups)
             .filter { !$0.isTrashed }
+        let autoTypeInheritance = autoTypeInheritance(in: tree)
 
         let groups = allGroups
             .map {
@@ -2032,7 +2040,9 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                     path: $0.breadcrumb,
                     iconPNGData: iconData(from: $0.icon),
                     iconID: normalizedIconID($0.iconId),
-                    isTrash: $0.isTrash
+                    isTrash: $0.isTrash,
+                    autoType: groupAutoType(of: $0),
+                    autoTypeInheritance: $0.parent.flatMap { autoTypeInheritance[ObjectIdentifier($0)] } ?? .root
                 )
             }
             .sorted { lhs, rhs in
@@ -2045,7 +2055,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
 
         for entry in allEntries {
             entries.append(
-                mapEntry(entry)
+                mapEntry(entry, autoTypeInheritance: entry.parent.flatMap { autoTypeInheritance[ObjectIdentifier($0)] } ?? .root)
             )
         }
 
@@ -2095,7 +2105,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         tree.allEntries.first { $0.uuid.uuidString.lowercased() == id.uuidString.lowercased() }
     }
 
-    private static func mapEntry(_ entry: KPKEntry) -> VaultEntry {
+    private static func mapEntry(_ entry: KPKEntry, autoTypeInheritance: VaultAutoTypeInheritance = .root) -> VaultEntry {
         let otp = makeOTPConfiguration(from: entry)
         let history = sortedHistoryEntries(from: entry)
             .map(mapRevision)
@@ -2151,8 +2161,111 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             entryType: entry.customData[VaultEntryType.customDataKey].flatMap(VaultEntryType.init(rawValue:)) ?? .login,
             templateName: entry.customData[VaultEntryType.templateCustomDataKey],
             references: resolver.references,
-            sshAgent: sshAgentSettings(from: entry)
+            sshAgent: sshAgentSettings(from: entry),
+            autoType: autoTypeSettings(of: entry),
+            autoTypeInheritance: autoTypeInheritance
         )
+    }
+
+    // MARK: Auto-Type
+
+    /// What each group passes on to its entries and subgroups. KeePassKit's own `isAutotypeable`
+    /// reads the parent's raw flag, so inheritance is worked out here.
+    private static func autoTypeInheritance(in tree: KPKTree) -> [ObjectIdentifier: VaultAutoTypeInheritance] {
+        var result: [ObjectIdentifier: VaultAutoTypeInheritance] = [:]
+        func visit(_ group: KPKGroup, inherited: VaultAutoTypeInheritance) {
+            let own = inherited.applying(groupAutoType(of: group), title: group.title ?? "")
+            result[ObjectIdentifier(group)] = own
+            for child in group.groups {
+                visit(child, inherited: own)
+            }
+        }
+        if let root = tree.root {
+            visit(root, inherited: .root)
+        }
+        return result
+    }
+
+    private static func groupAutoType(of group: KPKGroup) -> VaultGroupAutoType {
+        let enabled: VaultInheritedFlag
+        switch group.isAutoTypeEnabled.rawValue {
+        case KPKInheritBool.YES.rawValue:
+            enabled = .on
+        case KPKInheritBool.NO.rawValue:
+            enabled = .off
+        default:
+            enabled = .inherit
+        }
+        // The getter falls back to the parent's sequence; only the group's own one counts here.
+        let sequence = group.hasDefaultAutotypeSequence ? nil : group.defaultAutoTypeSequence
+        return VaultGroupAutoType(enabled: enabled, sequence: sequence)
+    }
+
+    private static func applyGroupAutoType(_ settings: VaultGroupAutoType, to group: KPKGroup) {
+        let flag: KPKInheritBool
+        switch settings.enabled {
+        case .inherit:
+            flag = KPKInheritBool(rawValue: -1) ?? .NO
+        case .on:
+            flag = .YES
+        case .off:
+            flag = .NO
+        }
+        if group.isAutoTypeEnabled != flag {
+            group.isAutoTypeEnabled = flag
+        }
+        let sequence = settings.sequence.flatMap { $0.isEmpty ? nil : $0 }
+        if groupAutoType(of: group).sequence != sequence {
+            group.defaultAutoTypeSequence = sequence
+        }
+    }
+
+    private static func autoTypeSettings(of entry: KPKEntry) -> VaultAutoTypeSettings {
+        guard let autotype = entry.autotype else {
+            return .default
+        }
+        return VaultAutoTypeSettings(
+            isEnabled: autotype.enabled,
+            sequence: autotype.hasDefaultKeystrokeSequence ? nil : autotype.defaultKeystrokeSequence,
+            associations: autotype.associations.map { association in
+                VaultAutoTypeAssociation(
+                    windowTitle: association.windowTitle ?? "",
+                    // The getter falls back to the entry's sequence.
+                    sequence: association.hasDefaultKeystrokeSequence ? "" : association.keystrokeSequence ?? ""
+                )
+            }
+        )
+    }
+
+    /// Changes only what differs, so saving an untouched form doesn't mark the entry modified.
+    private static func applyAutoType(_ settings: VaultAutoTypeSettings?, to entry: KPKEntry) {
+        guard let settings, !settings.hasSameContent(as: autoTypeSettings(of: entry)) else {
+            return
+        }
+        guard let autotype = entry.autotype else {
+            return
+        }
+        if autotype.enabled != settings.isEnabled {
+            autotype.enabled = settings.isEnabled
+        }
+        let sequence = settings.sequence.flatMap { $0.isEmpty ? nil : $0 }
+        if (autotype.hasDefaultKeystrokeSequence ? nil : autotype.defaultKeystrokeSequence) != sequence {
+            autotype.defaultKeystrokeSequence = sequence
+        }
+        let current = autoTypeSettings(of: entry).associations
+        let wanted = settings.associations.filter { !$0.windowTitle.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard current.count != wanted.count || !zip(current, wanted).allSatisfy({ $0.hasSameContent(as: $1) }) else {
+            return
+        }
+        for association in autotype.associations {
+            autotype.removeAssociation(association)
+        }
+        for association in wanted {
+            autotype.addAssociation(KPKWindowAssociation(
+                windowTitle: association.windowTitle.trimmingCharacters(in: .whitespaces),
+                keystrokeSequence: association.sequence
+            ))
+        }
     }
 
     private static func hexString(from color: NSColor?) -> String? {
@@ -2349,6 +2462,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         try applyOTP(form.otp, to: entry, title: normalizedTitle)
         applyEntryType(form, to: entry)
         applySSHAgent(form.sshAgent, to: entry)
+        applyAutoType(form.autoType, to: entry)
     }
 
     private static func sshAgentSettings(from entry: KPKEntry) -> VaultSSHAgentSettings? {
