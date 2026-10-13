@@ -139,8 +139,17 @@ final class AutoTypeUITests: KeeMacUITestCase {
         launchUnlocked()
         openSettings(tab: "Auto-Type")
         XCTAssertEqual(text("settings.autoType.permission"), "Granted")
-        XCTAssertTrue(element("settings.autoType.enabled").exists)
         XCTAssertTrue(element("settings.autoType.delay").exists)
         closeSettings(tab: "Auto-Type")
+    }
+
+    func testShortcutsTabHoldsBothGlobalShortcuts() {
+        launchUnlocked()
+        openSettings(tab: "Shortcuts")
+        XCTAssertTrue(element("settings.quickAccess.shortcut").exists)
+        XCTAssertTrue(element("settings.quickAccess.enabled").exists)
+        XCTAssertEqual(element("settings.autoType.shortcut").value as? String, "⌃⌥⌘A")
+        XCTAssertTrue(element("settings.autoType.enabled").exists)
+        closeSettings(tab: "Shortcuts")
     }
 }

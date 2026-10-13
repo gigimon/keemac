@@ -79,7 +79,7 @@ Not covered: a master key changed on another device, clocks that disagree betwee
 - A global shortcut (⌃⌥⌘A by default) types the matching entry into the frontmost window of any app: `{USERNAME}{TAB}{PASSWORD}{ENTER}` unless the entry or its group sets another sequence. Text is typed as Unicode, so the keyboard layout doesn't matter.
 - Entries are matched by window associations (`*` wildcards, `//regex//`), by the entry title in the window title, and in Safari and Chromium browsers by the tab address. One match types right away; otherwise Quick Access opens to pick an entry (it unlocks the database first when needed).
 - Sequences follow KeePass: field placeholders, `{S:Field}`, `{REF:…}`, `{TOTP}`, named keys with repeats (`{TAB 2}`), modifiers `+` ⇧, `^` ⌘, `%` ⌥, `@`/`#` ⌃, `{DELAY 500}`, `{DELAY=50}`, `{CLEARFIELD}`. Entry and group settings are stored in the KeePass format, so KeePassXC and MacPass read them.
-- Needs Accessibility access (Settings → Auto-Type shows its state). When another app has Secure Keyboard Entry on, KeeMac says so instead of typing.
+- Needs Accessibility access (Settings → Auto-Type shows its state); the shortcut is set in Settings → Shortcuts. When another app has Secure Keyboard Entry on, KeeMac says so instead of typing.
 
 ### Languages
 - English and Russian. KeeMac follows the system language; System Settings → General → Language & Region → Applications sets it per app. For a debug build: `swift run KeeMacApp -AppleLanguages "(ru)"`.
@@ -115,9 +115,10 @@ Not covered: a master key changed on another device, clocks that disagree betwee
 ## Settings
 
 - **General**: launch at login, start minimized, Dock icon, entries from subgroups, password generator defaults, sync mode, conflicting copies lookup, expiry notifications and banner, layout, entry icons.
-- **Security**: Touch ID per database, auto-lock timeout, lock on screen lock, clipboard auto-clear timeout.
+- **Security**: Touch ID per database, auto-lock timeout, lock on screen lock, clipboard auto-clear timeout, how long Quick Access keeps the database unlocked.
+- **Shortcuts**: the global Quick Access and Auto-Type shortcuts, each with an on/off switch.
 - **Browser**: browser integration, per-browser setup, access confirmation, expired logins, updating without asking, connected browsers.
-- **Auto-Type**: global shortcut, Accessibility permission, delay between keystrokes.
+- **Auto-Type**: Accessibility permission, delay between keystrokes.
 - **About**: version, license and every bundled component with its license text.
 
 ## Tech stack

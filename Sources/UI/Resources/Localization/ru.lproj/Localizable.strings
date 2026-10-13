@@ -899,7 +899,6 @@
 "Show in KeeMac" = "Показать в KeeMac";
 "Quick Access needs the database unlocked" = "Для быстрого доступа базу нужно разблокировать";
 "Press ↩ to unlock" = "Нажмите ↩, чтобы разблокировать";
-"Open Quick Access with a shortcut" = "Открывать быстрый доступ сочетанием клавиш";
 "Keep unlocked after Quick Access" = "Не блокировать после быстрого доступа";
 "When Quick Access unlocked the database. Inactivity still locks it earlier" = "Если базу разблокировал быстрый доступ. Бездействие всё равно заблокирует её раньше";
 "This shortcut is used by another app. Choose a different one" = "Это сочетание занято другим приложением. Выберите другое";
@@ -1149,3 +1148,8 @@
 "Auto-Type stopped" = "Автоввод остановлен";
 "The window in %@ lost focus, so KeeMac stopped typing." = "Окно в %@ потеряло фокус, и KeeMac прекратил ввод.";
 "Auto-Type: a window association needs a window title." = "Автоввод: у привязки к окну должен быть заголовок окна.";
+"Shortcuts" = "Сочетания клавиш";
+"Global shortcuts" = "Глобальные сочетания клавиш";
+"Open Quick Access" = "Открыть быстрый доступ";
+"They work in any app, also while KeeMac is in the background. Click a shortcut and press a new one." = "Работают в любом приложении, даже когда KeeMac в фоне. Нажмите на сочетание и введите новое.";
+"Same as the Quick Access shortcut. Choose a different one" = "Совпадает с сочетанием быстрого доступа. Выберите другое";

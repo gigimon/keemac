@@ -7,6 +7,7 @@ public struct SettingsView: View {
     private enum Tab: Hashable {
         case general
         case security
+        case shortcuts
         case browser
         case autoType
         case sshAgent
@@ -53,6 +54,14 @@ public struct SettingsView: View {
                 Label(L("Security"), systemImage: "lock")
             }
             .tag(Tab.security)
+
+            settingsPage {
+                shortcutGroups
+            }
+            .tabItem {
+                Label(L("Shortcuts"), systemImage: "command")
+            }
+            .tag(Tab.shortcuts)
 
             settingsPage {
                 browserGroups
@@ -118,30 +127,6 @@ public struct SettingsView: View {
 
     @ViewBuilder
     private var autoTypeGroups: some View {
-        settingsGroup(L("Auto-Type")) {
-            settingRow(L("Type with a shortcut"), subtitle: autoTypeSubtitle, isFirst: true) {
-                HStack(spacing: 10) {
-                    ShortcutRecorder(shortcut: Binding(
-                        get: { settings.autoTypeShortcut },
-                        set: { shortcut in
-                            settings.autoTypeShortcut = shortcut
-                            updateAutoTypeHotKey()
-                        }
-                    ), label: L("Auto-Type shortcut"), onFinish: updateAutoTypeHotKey)
-                    .disabled(!settings.autoTypeEnabled)
-                    .accessibilityIdentifier("settings.autoType.shortcut")
-                    settingsToggle(Binding(
-                        get: { settings.autoTypeEnabled },
-                        set: { isOn in
-                            settings.autoTypeEnabled = isOn
-                            updateAutoTypeHotKey()
-                        }
-                    ))
-                    .accessibilityIdentifier("settings.autoType.enabled")
-                }
-            }
-        }
-
         settingsGroup(L("Permission")) {
             settingRow(L("Accessibility access"), subtitle: L("Read the window title and type into other apps"), isFirst: true) {
                 HStack(spacing: 10) {
@@ -202,11 +187,81 @@ public struct SettingsView: View {
             .padding(.top, -10)
     }
 
+    // MARK: Shortcuts
+
+    @ViewBuilder
+    private var shortcutGroups: some View {
+        settingsGroup(L("Global shortcuts")) {
+            settingRow(L("Open Quick Access"), subtitle: quickAccessSubtitle, isFirst: true) {
+                HStack(spacing: 10) {
+                    ShortcutRecorder(shortcut: Binding(
+                        get: { settings.quickAccessShortcut },
+                        set: { shortcut in
+                            settings.quickAccessShortcut = shortcut
+                            updateHotKeys()
+                        }
+                    ), onFinish: updateHotKeys)
+                    .disabled(!settings.quickAccessEnabled)
+                    .accessibilityIdentifier("settings.quickAccess.shortcut")
+                    settingsToggle(Binding(
+                        get: { settings.quickAccessEnabled },
+                        set: { isOn in
+                            settings.quickAccessEnabled = isOn
+                            updateHotKeys()
+                        }
+                    ))
+                    .accessibilityIdentifier("settings.quickAccess.enabled")
+                }
+            }
+            settingRow(L("Auto-Type"), subtitle: autoTypeSubtitle) {
+                HStack(spacing: 10) {
+                    ShortcutRecorder(shortcut: Binding(
+                        get: { settings.autoTypeShortcut },
+                        set: { shortcut in
+                            settings.autoTypeShortcut = shortcut
+                            updateHotKeys()
+                        }
+                    ), label: L("Auto-Type shortcut"), onFinish: updateHotKeys)
+                    .disabled(!settings.autoTypeEnabled)
+                    .accessibilityIdentifier("settings.autoType.shortcut")
+                    settingsToggle(Binding(
+                        get: { settings.autoTypeEnabled },
+                        set: { isOn in
+                            settings.autoTypeEnabled = isOn
+                            updateHotKeys()
+                        }
+                    ))
+                    .accessibilityIdentifier("settings.autoType.enabled")
+                }
+            }
+        }
+        Text(L("They work in any app, also while KeeMac is in the background. Click a shortcut and press a new one."))
+            .font(.system(size: 11))
+            .foregroundStyle(KM.textSecondary)
+            .padding(.horizontal, 4)
+            .padding(.top, -10)
+    }
+
+    /// Both shortcuts are on and the same, so only the one registered first works.
+    private var shortcutsClash: Bool {
+        settings.quickAccessEnabled && settings.autoTypeEnabled
+            && settings.quickAccessShortcut.keyCode == settings.autoTypeShortcut.keyCode
+            && settings.quickAccessShortcut.modifierFlags == settings.autoTypeShortcut.modifierFlags
+    }
+
     private var autoTypeSubtitle: String {
+        if shortcutsClash {
+            return L("Same as the Quick Access shortcut. Choose a different one")
+        }
         if settings.autoTypeEnabled && autoTypeShortcutConflict {
             return L("This shortcut is used by another app. Choose a different one")
         }
         return L("Types the matching entry into the frontmost window.")
+    }
+
+    private func updateHotKeys() {
+        updateQuickAccessHotKey()
+        updateAutoTypeHotKey()
     }
 
     private func updateAutoTypeHotKey() {
@@ -565,26 +620,7 @@ public struct SettingsView: View {
         }
 
         settingsGroup(L("Quick Access")) {
-            settingRow(L("Open Quick Access with a shortcut"), subtitle: quickAccessSubtitle, isFirst: true) {
-                HStack(spacing: 10) {
-                    ShortcutRecorder(shortcut: Binding(
-                        get: { settings.quickAccessShortcut },
-                        set: { shortcut in
-                            settings.quickAccessShortcut = shortcut
-                            updateQuickAccessHotKey()
-                        }
-                    ), onFinish: updateQuickAccessHotKey)
-                    .disabled(!settings.quickAccessEnabled)
-                    settingsToggle(Binding(
-                        get: { settings.quickAccessEnabled },
-                        set: { isOn in
-                            settings.quickAccessEnabled = isOn
-                            updateQuickAccessHotKey()
-                        }
-                    ))
-                }
-            }
-            settingRow(L("Keep unlocked after Quick Access"), subtitle: L("When Quick Access unlocked the database. Inactivity still locks it earlier")) {
+            settingRow(L("Keep unlocked after Quick Access"), subtitle: L("When Quick Access unlocked the database. Inactivity still locks it earlier"), isFirst: true) {
                 Menu {
                     ForEach(QuickAccessUnlockDuration.allCases, id: \.self) { duration in
                         Button(duration.title) {
