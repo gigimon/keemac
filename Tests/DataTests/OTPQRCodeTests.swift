@@ -28,7 +28,8 @@ final class OTPQRCodeTests: XCTestCase {
         XCTAssertEqual(code.issuer, "GitHub")
         XCTAssertEqual(code.account, "anna@example.com")
         XCTAssertEqual(code.label, "GitHub · anna@example.com")
-        XCTAssertNil(OTPQRCode(uri: "otpauth://hotp/Bank?secret=JBSWY3DPEHPK3PXP&counter=1"))
+        XCTAssertEqual(OTPQRCode(uri: "otpauth://hotp/Bank?secret=JBSWY3DPEHPK3PXP&counter=1")?.account, "Bank")
+        XCTAssertNil(OTPQRCode(uri: "otpauth://other/Bank?secret=JBSWY3DPEHPK3PXP"))
         XCTAssertNil(OTPQRCode(uri: "otpauth://totp/NoSecret"))
         XCTAssertNil(OTPQRCode(uri: "https://example.com"))
     }
