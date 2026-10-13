@@ -472,6 +472,31 @@ final class BrowserIntegrationControllerTests: XCTestCase {
         XCTAssertNil(trashed, "entries in the recycle bin have no code")
     }
 
+    func testHOTPCodeIsUsedOnlyWhenTheBrowserAsksForIt() async throws {
+        let fixture = try await makeFixture([
+            VaultEntryForm(title: "Bank", username: "u", password: "p", url: "https://bank.example", otp: VaultOTPForm(
+                secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                kind: .hotp,
+                counter: 5
+            ))
+        ])
+        fixture.controller.alwaysAllowAccess = true
+        let bankID = try fixture.id("Bank")
+
+        let logins = await fixture.controller.browserLogins(for: BrowserLoginQuery(siteURL: "https://bank.example/", formURL: "", httpAuth: false))
+        XCTAssertEqual(logins.map(\.name), ["Bank"])
+        XCTAssertNil(logins.first?.totp, "listing logins doesn't hand out HOTP codes")
+        let listed = try await fixture.storedEntry { $0.title == "Bank" }
+        XCTAssertEqual(listed.otp?.counter, 5)
+
+        let first = await fixture.controller.browserTOTP(forEntry: bankID)
+        let second = await fixture.controller.browserTOTP(forEntry: bankID)
+        XCTAssertEqual(first, "254676", "RFC 4226 code for counter 5")
+        XCTAssertEqual(second, "287922", "the next request gets the next code")
+        let stored = try await fixture.storedEntry { $0.title == "Bank" }
+        XCTAssertEqual(stored.otp?.counter, 7)
+    }
+
     // MARK: - Saving
 
     func testSaveNewLoginGoesToBrowserGroup() async throws {
