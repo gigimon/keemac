@@ -301,7 +301,8 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
                 name: candidate.title,
                 uuid: candidate.id,
                 group: candidate.groupTitle,
-                totp: candidate.otp.flatMap { OTPCodeGenerator.makeCodeState(from: $0, now: now)?.code },
+                // Every listed login would use up an HOTP code; the extension asks with get-totp when it fills one.
+                totp: candidate.otp.flatMap { $0.kind == .hotp ? nil : OTPCodeGenerator.makeCodeState(from: $0, now: now)?.code },
                 isExpired: candidate.isExpired,
                 skipAutoSubmit: candidate.skipAutoSubmit,
                 stringFields: candidate.kphFields.map { BrowserStringField(key: $0.key, value: $0.value) }
@@ -309,12 +310,22 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
         }
     }
 
+    /// Handing out an HOTP code to the browser uses it: the counter moves on and is saved.
     public func browserTOTP(forEntry id: UUID) async -> String? {
-        guard case .loaded(let vault) = viewModel?.loadState,
-              let otp = vault.entries.first(where: { $0.id == id && !$0.isTrashed })?.otp else {
+        guard let viewModel, case .loaded(let vault) = viewModel.loadState,
+              let otp = vault.entries.first(where: { $0.id == id && !$0.isTrashed })?.otp,
+              let code = OTPCodeGenerator.makeCodeState(from: otp, now: Date())?.code else {
             return nil
         }
-        return OTPCodeGenerator.makeCodeState(from: otp, now: Date())?.code
+        if otp.kind == .hotp {
+            do {
+                try await viewModel.advanceHOTPCounter(entryID: id)
+            } catch {
+                SecureLogger.logUnlockFailure(error)
+                return nil
+            }
+        }
+        return code
     }
 
     public func browserGroups() async -> VaultBrowserGroup? {

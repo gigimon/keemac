@@ -417,7 +417,19 @@ final class QuickAccessModel {
         confirmation = SensitiveClipboard.shared.copySensitiveText(value, label: field.label, showsToast: false)
         viewModel.recordEntryUsage(id: entry.id)
         viewModel.registerUserActivity()
-        closeAfterConfirmation()
+        guard field == .oneTimeCode, entry.otp?.kind == .hotp else {
+            closeAfterConfirmation()
+            return
+        }
+        // A copied HOTP code is used: save the next counter before the panel closes (and may lock).
+        Task {
+            do {
+                try await viewModel.advanceHOTPCounter(entryID: entry.id)
+            } catch {
+                SecureLogger.logUnlockFailure(error)
+            }
+            closeAfterConfirmation()
+        }
     }
 
     func showInMainWindow(_ entry: VaultEntry) {
