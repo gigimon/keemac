@@ -1413,6 +1413,26 @@ public final class AppViewModel {
         await absorbPendingMerge()
     }
 
+    /// Moves an HOTP entry to its next code. It is saved right away and isn't an undo step.
+    public func advanceHOTPCounter(entryID id: UUID) async throws {
+        if let target = additionalTarget(forEntry: id) {
+            try await editAdditional(target.key) { try await $0.advanceHOTPCounter(id: target.localID) }
+            return
+        }
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: L("Vault is not unlocked."))
+        }
+
+        let updatedVault = try await vaultEditor.advanceHOTPCounter(id: id)
+        syncEntryCollections(with: updatedVault)
+        loadState = .loaded(updatedVault)
+        await absorbPendingMerge()
+        registerUserActivity()
+    }
+
     public func recordEntryUsage(id: UUID) {
         if let target = additionalTarget(forEntry: id) {
             Task {

@@ -1472,6 +1472,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         guard redo ? undoStack.canRedo : undoStack.canUndo else {
             return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
         }
+        // Undoing an edit brings back the entry's old fields, but not its old HOTP counter.
+        let counters = Self.hotpCounters(in: currentSession.tree)
         // Undoing registers the redo step (and the other way round), which needs registration on.
         undoStack.enableRegistration()
         if redo {
@@ -1480,6 +1482,9 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             undoStack.undo()
         }
         undoStack.disableRegistration()
+        currentSession.editingDelegate.withoutUndo {
+            Self.raiseHOTPCounters(in: currentSession.tree, to: counters)
+        }
         defer { clearUndoIfStale() }
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
@@ -2478,17 +2483,37 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     /// A merge keeps the newer entry, but an HOTP counter must never go back: a lower one
     /// would hand out codes the server has already seen.
     private static func keepHighestHOTPCounters(in target: KPKTree, from source: KPKTree) {
-        for incomingEntry in source.allEntries where !incomingEntry.isHistory {
-            guard let incoming = makeOTPConfiguration(from: incomingEntry)?.configuration,
-                  incoming.kind == .hotp,
-                  let local = target.allEntries.first(where: { !$0.isHistory && $0.uuid == incomingEntry.uuid }),
-                  let current = makeOTPConfiguration(from: local)?.configuration,
-                  current.kind == .hotp,
-                  current.secret == incoming.secret,
-                  current.counter < incoming.counter else {
+        raiseHOTPCounters(in: target, to: hotpCounters(in: source))
+    }
+
+    private struct HOTPCounter {
+        let secret: Data
+        let counter: UInt64
+    }
+
+    private static func hotpCounters(in tree: KPKTree) -> [UUID: HOTPCounter] {
+        var counters: [UUID: HOTPCounter] = [:]
+        for entry in tree.allEntries where !entry.isHistory {
+            if let otp = makeOTPConfiguration(from: entry)?.configuration, otp.kind == .hotp {
+                counters[entry.uuid] = HOTPCounter(secret: otp.secret, counter: otp.counter)
+            }
+        }
+        return counters
+    }
+
+    private static func raiseHOTPCounters(in tree: KPKTree, to counters: [UUID: HOTPCounter]) {
+        guard !counters.isEmpty else {
+            return
+        }
+        for entry in tree.allEntries where !entry.isHistory {
+            guard let known = counters[entry.uuid],
+                  let otp = makeOTPConfiguration(from: entry)?.configuration,
+                  otp.kind == .hotp,
+                  otp.secret == known.secret,
+                  otp.counter < known.counter else {
                 continue
             }
-            setHOTPCounter(incoming.counter, on: local)
+            setHOTPCounter(known.counter, on: entry)
         }
     }
 

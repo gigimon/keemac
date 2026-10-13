@@ -22,6 +22,8 @@ struct EntryDetailPane: View {
     let onDeletePermanently: () -> Void
     let onUsed: () -> Void
     let onShowHistory: (() -> Void)?
+    /// HOTP only: moves the entry to its next code.
+    var onNextOTP: (() -> Void)? = nil
     var supportsTypes: Bool = false
     /// Title of the entry a `{REF:…}` points to.
     var referenceTitle: (UUID) -> String? = { _ in nil }
@@ -175,14 +177,16 @@ struct EntryDetailPane: View {
                                 .font(.system(size: 17, weight: .semibold, design: .monospaced))
                                 .kerning(1)
                                 .foregroundStyle(KM.accent)
-                            OTPRing(remaining: otp.remainingSeconds, period: otp.period, size: 18)
-                            Text(L("\(otp.remainingSeconds)s"))
-                                .font(.system(size: 11))
-                                .monospacedDigit()
-                                .foregroundStyle(KM.textSecondary)
+                                .accessibilityIdentifier("detail.otpCode")
+                            otpProgress(otp, ringSize: 18)
                         }
                     } trailing: {
-                        copyButton(otp.code, label: L("One-time code"), identifier: "detail.copyOTP", size: 28)
+                        HStack(spacing: 4) {
+                            if otp.isCounterBased {
+                                nextOTPButton(size: 28)
+                            }
+                            copyButton(otp.code, label: L("One-time code"), identifier: "detail.copyOTP", size: 28)
+                        }
                     }
                 }
             } else {
@@ -456,13 +460,13 @@ struct EntryDetailPane: View {
                             .font(.system(size: 19, weight: .semibold, design: .monospaced))
                             .kerning(1)
                             .foregroundStyle(KM.accent)
-                        OTPRing(remaining: otp.remainingSeconds, period: otp.period)
-                        Text(L("\(otp.remainingSeconds)s"))
-                            .font(.system(size: 11))
-                            .monospacedDigit()
-                            .foregroundStyle(KM.textSecondary)
+                            .accessibilityIdentifier("detail.otpCode")
+                        otpProgress(otp, ringSize: nil)
                     }
                 } actions: {
+                    if otp.isCounterBased {
+                        nextOTPButton(size: 30)
+                    }
                     copyButton(otp.code, label: L("One-time code"), identifier: "detail.copyOTP")
                 }
             }
@@ -966,6 +970,41 @@ struct EntryDetailPane: View {
         .buttonStyle(KMIconButtonStyle(size: size, cornerRadius: size == 30 ? 8 : 7))
         .iconHelp(L("Copy \(label)"))
         .accessibilityIdentifier(identifier ?? "detail.copy.\(label)")
+    }
+
+    /// Time left for TOTP and Steam codes, the counter for HOTP.
+    @ViewBuilder
+    private func otpProgress(_ otp: OTPCodeState, ringSize: CGFloat?) -> some View {
+        if otp.isCounterBased {
+            Text(L("Counter \(Int(clamping: otp.counter ?? 0))"))
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(KM.textSecondary)
+                .accessibilityIdentifier("detail.otpCounter")
+        } else {
+            if let ringSize {
+                OTPRing(remaining: otp.remainingSeconds, period: otp.period, size: ringSize)
+            } else {
+                OTPRing(remaining: otp.remainingSeconds, period: otp.period)
+            }
+            Text(L("\(otp.remainingSeconds)s"))
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(KM.textSecondary)
+        }
+    }
+
+    private func nextOTPButton(size: CGFloat) -> some View {
+        Button {
+            onNextOTP?()
+        } label: {
+            Image(systemName: "arrow.forward.circle")
+                .font(.system(size: 13))
+        }
+        .buttonStyle(KMIconButtonStyle(size: size, cornerRadius: size == 30 ? 8 : 7))
+        .iconHelp(L("Next code"))
+        .accessibilityIdentifier("detail.nextOTP")
+        .disabled(onNextOTP == nil || isBusy)
     }
 
     private var otpState: OTPCodeState? {

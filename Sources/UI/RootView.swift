@@ -126,6 +126,9 @@ public struct RootView: View {
                     onRevertEntry: { id, index in
                         try await viewModel.revertEntry(id: id, toHistoryRevisionAt: index)
                     },
+                    onAdvanceHOTP: { id in
+                        try await viewModel.advanceHOTPCounter(entryID: id)
+                    },
                     onToggleFavorite: { id in
                         viewModel.toggleFavorite(entryID: id)
                     },

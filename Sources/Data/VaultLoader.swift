@@ -32,6 +32,8 @@ public protocol VaultEditing: Sendable {
     func moveGroup(path: String, toParentPath parentPath: String?) async throws -> LoadedVault
     func deleteGroup(path: String) async throws -> LoadedVault
     func recordEntryUsage(id: UUID) async throws -> LoadedVault
+    /// Moves an HOTP entry to its next code; saved right away, without history or undo.
+    func advanceHOTPCounter(id: UUID) async throws -> LoadedVault
 }
 
 public protocol VaultSessionControlling: Sendable {

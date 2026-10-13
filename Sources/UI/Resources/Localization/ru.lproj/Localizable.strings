@@ -620,7 +620,6 @@
 "The same password protects more than one entry. A breach of one site exposes the others." = "Один и тот же пароль защищает несколько записей. Утечка на одном сайте открывает доступ к остальным.";
 "Theirs · %@" = "Их версия · %@";
 "Third-party software" = "Сторонние компоненты";
-"This QR code has a counter-based (HOTP) code. KeeMac supports time-based (TOTP) codes only." = "В этом QR-коде счётчиковый код (HOTP). KeeMac поддерживает только коды по времени (TOTP).";
 "This can’t be undone." = "Это действие нельзя отменить.";
 "This database is already open." = "Эта база данных уже открыта.";
 "This entry and its attachments will be removed from the database. This can’t be undone." = "Запись и её вложения будут удалены из базы данных. Это действие нельзя отменить.";
@@ -1072,3 +1071,7 @@
 "“%@” is now in the SSH agent" = "«%@» теперь в SSH-агенте";
 "ssh agent" = "ssh-агент";
 "Opening passphrase-protected SSH keys" = "Открытие SSH-ключей, защищённых паролем";
+"Counter" = "Счётчик";
+"Counter %lld" = "Счётчик: %lld";
+"Next code" = "Следующий код";
+"The HOTP counter can't be negative." = "Счётчик HOTP не может быть отрицательным.";

@@ -153,6 +153,7 @@ public struct VaultBrowserView: View {
     private let onMoveEntry: @Sendable (_ id: UUID, _ groupPath: String?) async throws -> Void
     private let onMoveGroup: @Sendable (_ path: String, _ toParentPath: String?) async throws -> Void
     private let onRestoreEntry: @Sendable (_ id: UUID) async throws -> Void
+    private let onAdvanceHOTP: @Sendable (_ id: UUID) async throws -> Void
     private let onRevertEntry: @Sendable (_ id: UUID, _ historyIndex: Int) async throws -> Void
     private let onToggleFavorite: (UUID) -> Void
     private let onEntryViewed: (UUID) -> Void
@@ -233,6 +234,7 @@ public struct VaultBrowserView: View {
         onMoveGroup: @escaping @Sendable (_ path: String, _ toParentPath: String?) async throws -> Void,
         onRestoreEntry: @escaping @Sendable (_ id: UUID) async throws -> Void,
         onRevertEntry: @escaping @Sendable (_ id: UUID, _ historyIndex: Int) async throws -> Void,
+        onAdvanceHOTP: @escaping @Sendable (_ id: UUID) async throws -> Void = { _ in },
         onToggleFavorite: @escaping (UUID) -> Void,
         onEntryViewed: @escaping (UUID) -> Void,
         onEntryUsed: @escaping (UUID) -> Void,
@@ -277,6 +279,7 @@ public struct VaultBrowserView: View {
         self.onMoveEntry = onMoveEntry
         self.onMoveGroup = onMoveGroup
         self.onRestoreEntry = onRestoreEntry
+        self.onAdvanceHOTP = onAdvanceHOTP
         self.onRevertEntry = onRevertEntry
         self.onToggleFavorite = onToggleFavorite
         self.onEntryViewed = onEntryViewed
@@ -1543,6 +1546,11 @@ public struct VaultBrowserView: View {
                         onDeletePermanently: { confirmDeletePermanently(entry) },
                         onUsed: { onEntryUsed(entry.id) },
                         onShowHistory: entry.history.isEmpty ? nil : { historyEntry = entry },
+                        onNextOTP: entry.otp?.kind == .hotp && !entry.isTrashed ? {
+                            Task {
+                                await runMutation { try await onAdvanceHOTP(entry.id) }
+                            }
+                        } : nil,
                         supportsTypes: supportsEntryTypes,
                         referenceTitle: { id in vault.entries.first { $0.id == id }?.title },
                         onOpenReference: { id in
