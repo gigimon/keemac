@@ -1414,10 +1414,13 @@ public final class AppViewModel {
     }
 
     /// Moves an HOTP entry to its next code. It is saved right away and isn't an undo step.
-    public func advanceHOTPCounter(entryID id: UUID) async throws {
+    /// Returns the counter this call used up (main database only), so callers running at the
+    /// same time never hand out the same code.
+    @discardableResult
+    public func advanceHOTPCounter(entryID id: UUID) async throws -> UInt64? {
         if let target = additionalTarget(forEntry: id) {
             try await editAdditional(target.key) { try await $0.advanceHOTPCounter(id: target.localID) }
-            return
+            return nil
         }
         guard let vaultEditor else {
             throw VaultError.missingDependency(name: "Vault editing service")
@@ -1431,6 +1434,7 @@ public final class AppViewModel {
         loadState = .loaded(updatedVault)
         await absorbPendingMerge()
         registerUserActivity()
+        return updatedVault.entries.first { $0.id == id }?.otp.map { $0.counter &- 1 }
     }
 
     public func recordEntryUsage(id: UUID) {

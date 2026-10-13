@@ -93,6 +93,13 @@ struct EntryEditorPane: View {
 
     var body: some View {
         editorContent
+            .onChange(of: entry.modifiedAt) { _, modifiedAt in
+                // A code handed out by the browser or Quick Access moves the HOTP counter; that isn't
+                // someone else's edit.
+                if Self.ignoringHOTPCounter(VaultEntryForm(entry: entry)) == Self.ignoringHOTPCounter(initialForm) {
+                    baselineModifiedAt = modifiedAt
+                }
+            }
             .sheet(item: $referencePicker) { request in
                 ReferencePickerSheet(
                     entries: referenceEntries,
@@ -222,7 +229,7 @@ struct EntryEditorPane: View {
                         }
                     }
 
-                    row(L("TOTP secret")) {
+                    row(L("one-time password")) {
                         HStack(spacing: 6) {
                             TextField(L("Base32 secret or otpauth:// URI"), text: $otpInput)
                                 .font(.system(size: 13, design: .monospaced))
@@ -248,7 +255,7 @@ struct EntryEditorPane: View {
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(KMIconButtonStyle(cornerRadius: 7, tint: showOTPOptions ? KM.accent : KM.textPrimary, filled: true))
-                            .iconHelp(L("TOTP options"))
+                            .iconHelp(L("One-time password options"))
                             .accessibilityIdentifier("editor.otpOptions")
                             .disabled(form.otp == nil)
                         }
@@ -364,6 +371,12 @@ struct EntryEditorPane: View {
         .onAppear {
             completingFocus = .title
         }
+    }
+
+    private static func ignoringHOTPCounter(_ form: VaultEntryForm) -> VaultEntryForm {
+        var form = form
+        form.otp?.counter = 0
+        return form
     }
 
     /// The entry was rewritten by a merge from another device after editing started.

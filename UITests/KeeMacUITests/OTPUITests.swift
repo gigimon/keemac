@@ -27,7 +27,11 @@ final class OTPUITests: KeeMacUITestCase {
         XCTAssertEqual(text("detail.otpCounter"), "Counter 5", "copying doesn't use the code up")
 
         element("detail.nextOTP").click()
-        XCTAssertTrue(app.staticTexts["Counter 6"].waitForExistence(timeout: 5))
+        let moved = expectation(
+            for: NSPredicate(format: "label == 'Counter 6' OR value == 'Counter 6'"),
+            evaluatedWith: element("detail.otpCounter")
+        )
+        wait(for: [moved], timeout: 5)
         XCTAssertEqual(text("detail.otpCode"), "287 922")
 
         element("toolbar.lock").click()

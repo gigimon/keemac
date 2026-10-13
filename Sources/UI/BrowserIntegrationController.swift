@@ -313,19 +313,22 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
     /// Handing out an HOTP code to the browser uses it: the counter moves on and is saved.
     public func browserTOTP(forEntry id: UUID) async -> String? {
         guard let viewModel, case .loaded(let vault) = viewModel.loadState,
-              let otp = vault.entries.first(where: { $0.id == id && !$0.isTrashed })?.otp,
-              let code = OTPCodeGenerator.makeCodeState(from: otp, now: Date())?.code else {
+              let otp = vault.entries.first(where: { $0.id == id && !$0.isTrashed })?.otp else {
             return nil
         }
-        if otp.kind == .hotp {
-            do {
-                try await viewModel.advanceHOTPCounter(entryID: id)
-            } catch {
-                SecureLogger.logUnlockFailure(error)
+        guard otp.kind == .hotp else {
+            return OTPCodeGenerator.makeCodeState(from: otp, now: Date())?.code
+        }
+        do {
+            // The code of the counter this request used up; another request gets the next one.
+            guard let used = try await viewModel.advanceHOTPCounter(entryID: id) else {
                 return nil
             }
+            return OTPCodeGenerator.code(secret: otp.secret, counter: used, digits: otp.digits, algorithm: otp.algorithm)
+        } catch {
+            SecureLogger.logUnlockFailure(error)
+            return nil
         }
-        return code
     }
 
     public func browserGroups() async -> VaultBrowserGroup? {

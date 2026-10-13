@@ -175,8 +175,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         for (tree, keepsMetadata) in prepared {
             let metadata = keepsMetadata ? currentSession.tree.metaData.map(MetadataSnapshot.init) : nil
             currentSession.editingDelegate.withoutUndo {
-                currentSession.tree.synchronize(with: tree, mode: .synchronize, options: [])
-                Self.keepHighestHOTPCounters(in: currentSession.tree, from: tree)
+                Self.synchronizeKeepingHOTPCounters(currentSession.tree, with: tree)
             }
             if let metadata, let meta = currentSession.tree.metaData {
                 metadata.restore(into: meta)
@@ -234,8 +233,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         let externalVault = Self.mapTree(external, fileURL: session.fileURL)
 
         session.editingDelegate.withoutUndo {
-            session.tree.synchronize(with: external, mode: .synchronize, options: [])
-            Self.keepHighestHOTPCounters(in: session.tree, from: external)
+            Self.synchronizeKeepingHOTPCounters(session.tree, with: external)
             Self.adoptRecycleBin(from: external, into: session.tree)
         }
 
@@ -324,9 +322,14 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.parseFailure(details: "Entry has no counter-based one-time password.")
         }
 
+        guard otp.counter < UInt64.max else {
+            throw VaultError.parseFailure(details: "The HOTP counter can't go any higher.")
+        }
+
         Self.setHOTPCounter(otp.counter + 1, on: entry)
         entry.timeInfo.modificationDate = Date()
         try save(session: currentSession)
+        clearUndoIfStale()
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
@@ -399,8 +402,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         let before = Self.mapTree(session.tree, fileURL: session.fileURL)
         let snapshotVault = Self.mapTree(snapshotTree, fileURL: session.fileURL)
         session.editingDelegate.withoutUndo {
-            session.tree.synchronize(with: snapshotTree, mode: .synchronize, options: [])
-            Self.keepHighestHOTPCounters(in: session.tree, from: snapshotTree)
+            Self.synchronizeKeepingHOTPCounters(session.tree, with: snapshotTree)
         }
         Self.adoptRecycleBin(from: snapshotTree, into: session.tree)
         let after = Self.mapTree(session.tree, fileURL: session.fileURL)
@@ -733,7 +735,10 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.parseFailure(details: "History revision to revert was not found.")
         }
 
+        // An old version brings back its fields, not the counter of codes already used.
+        let counters = Self.hotpCounters(in: currentSession.tree)
         entry.revert(to: sortedHistory[index])
+        Self.raiseHOTPCounters(in: currentSession.tree, to: counters)
 
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
@@ -1023,8 +1028,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                     Self.upsertCustomAttribute(on: entry, key: field.key, value: field.value, protect: field.isProtected)
                 }
                 if let otp = Self.otpAuthURI(from: item.otp, title: item.title) {
-                    if let form = VaultOTPURI.parse(otp), form.kind == .hotp {
-                        try? Self.applyOTP(form, to: entry, title: item.title)
+                    if let form = VaultOTPURI.parse(otp), form.kind == .hotp, (try? Self.applyOTP(form, to: entry, title: item.title)) != nil {
+                        // Stored in KeePass's HOTP fields.
                     } else {
                         Self.upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: otp, protect: true)
                     }
@@ -1269,6 +1274,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             }
         }
 
+        let counters = Self.hotpCounters(in: tree)
         let conflicts = try await transferConflicts(for: payload)
         let conflictsByID = Dictionary(conflicts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var received: [UUID] = []
@@ -1317,6 +1323,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             }
         }
         withExtendedLifetime(delegate) {}
+        // A replaced entry keeps its own counter if the copy from the other database is behind.
+        Self.raiseHOTPCounters(in: tree, to: counters)
 
         try save(session: currentSession)
         return (
@@ -2424,7 +2432,20 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     }
 
     private static func applyOTP(_ otp: VaultOTPForm?, to entry: KPKEntry, title: String) throws {
-        clearOTPAttributes(on: entry)
+        // KeePass lets an entry have both a TOTP and an HOTP; KeeMac edits one of them and
+        // leaves the other family's fields alone.
+        let uriKind = entry.valueForAttribute(withKey: kKPKAttributeKeyOTPOAuthURL).flatMap { VaultOTPURI.parse($0) }?.kind
+        let hasHOTP = !decodeHmacOTPSecret(from: entry).isEmpty
+        let hasTOTP = (uriKind != nil && uriKind != .hotp) || !decodeTimeOTPSecret(from: entry).isEmpty
+        if hasHOTP && hasTOTP, let otp {
+            var keys = otp.kind == .hotp ? hmacOTPKeys : otpReservedCustomKeys.subtracting(hmacOTPKeys)
+            if otp.kind == .hotp, uriKind == .hotp {
+                keys.insert(kKPKAttributeKeyOTPOAuthURL)
+            }
+            clearOTPAttributes(on: entry, keys: keys)
+        } else {
+            clearOTPAttributes(on: entry)
+        }
 
         guard let otp else {
             return
@@ -2441,7 +2462,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             // settings also go into an `otpauth://hotp` URI.
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyHmacOTPSecretBase32, value: secret, protect: true)
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyHmacOTPCounter, value: String(counter), protect: false)
-            if clampedDigits != 6 || otp.algorithm != .sha1 {
+            if clampedDigits != 6 || otp.algorithm != .sha1, entry.customAttribute(withKey: kKPKAttributeKeyOTPOAuthURL) == nil {
                 let uri = VaultOTPURI.make(kind: .hotp, secret: secret, label: title, digits: clampedDigits, period: period, algorithm: otp.algorithm, counter: counter)
                 upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: uri, protect: false)
             }
@@ -2481,9 +2502,13 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     }
 
     /// A merge keeps the newer entry, but an HOTP counter must never go back: a lower one
-    /// would hand out codes the server has already seen.
-    private static func keepHighestHOTPCounters(in target: KPKTree, from source: KPKTree) {
-        raiseHOTPCounters(in: target, to: hotpCounters(in: source))
+    /// would hand out codes the server has already seen. Whichever side wins, the higher counter stays.
+    private static func synchronizeKeepingHOTPCounters(_ tree: KPKTree, with other: KPKTree) {
+        let local = hotpCounters(in: tree)
+        let incoming = hotpCounters(in: other)
+        tree.synchronize(with: other, mode: .synchronize, options: [])
+        raiseHOTPCounters(in: tree, to: local)
+        raiseHOTPCounters(in: tree, to: incoming)
     }
 
     private struct HOTPCounter {
@@ -2536,8 +2561,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         throw VaultError.parseFailure(details: "OTP secret must be valid Base32, Base64, or Hex.")
     }
 
-    private static func clearOTPAttributes(on entry: KPKEntry) {
-        for key in otpReservedCustomKeys {
+    private static func clearOTPAttributes(on entry: KPKEntry, keys: Set<String> = otpReservedCustomKeys) {
+        for key in keys {
             if let attribute = entry.customAttribute(withKey: key) {
                 entry.removeCustomAttribute(attribute)
             }
@@ -2565,6 +2590,14 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             return kKPKAttributeValueTimeOTPHmacSha512
         }
     }
+
+    private static let hmacOTPKeys: Set<String> = [
+        kKPKAttributeKeyHmacOTPSecret,
+        kKPKAttributeKeyHmacOTPSecretHex,
+        kKPKAttributeKeyHmacOTPSecretBase32,
+        kKPKAttributeKeyHmacOTPSecretBase64,
+        kKPKAttributeKeyHmacOTPCounter
+    ]
 
     private static let otpReservedCustomKeys: Set<String> = [
         kKPKAttributeKeyOTPOAuthURL,

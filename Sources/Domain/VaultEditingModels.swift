@@ -185,7 +185,9 @@ public enum VaultOTPURI {
         let host = components.host?.lowercased()
         if host == "hotp" {
             form.kind = .hotp
-            form.counter = max(items["counter"].flatMap(Int.init) ?? 0, 0)
+            // Counters past Int.max stay as high as the form can hold rather than going back to 0.
+            let counter = items["counter"].map { $0.trimmingCharacters(in: .whitespaces) }
+            form.counter = counter.flatMap(UInt64.init).map { Int(clamping: $0) } ?? 0
         } else if host == "steam" || items["encoder"]?.lowercased() == "steam" {
             form.kind = .steam
             form.digits = steamDigits

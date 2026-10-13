@@ -414,21 +414,33 @@ final class QuickAccessModel {
             NSSound.beep()
             return
         }
+        if field == .oneTimeCode, let otp = entry.otp, otp.kind == .hotp {
+            copyHOTPCode(otp, of: entry)
+            return
+        }
         confirmation = SensitiveClipboard.shared.copySensitiveText(value, label: field.label, showsToast: false)
         viewModel.recordEntryUsage(id: entry.id)
         viewModel.registerUserActivity()
-        guard field == .oneTimeCode, entry.otp?.kind == .hotp else {
-            closeAfterConfirmation()
-            return
-        }
-        // A copied HOTP code is used: save the next counter before the panel closes (and may lock).
+        closeAfterConfirmation()
+    }
+
+    /// A copied HOTP code is used up: the counter moves on and is saved before the panel closes (and may lock).
+    private func copyHOTPCode(_ otp: VaultOTPConfiguration, of entry: VaultEntry) {
         Task {
             do {
-                try await viewModel.advanceHOTPCounter(entryID: entry.id)
+                guard let used = try await viewModel.advanceHOTPCounter(entryID: entry.id),
+                      let code = OTPCodeGenerator.code(secret: otp.secret, counter: used, digits: otp.digits, algorithm: otp.algorithm) else {
+                    NSSound.beep()
+                    return
+                }
+                confirmation = SensitiveClipboard.shared.copySensitiveText(code, label: Field.oneTimeCode.label, showsToast: false)
+                viewModel.recordEntryUsage(id: entry.id)
+                viewModel.registerUserActivity()
+                closeAfterConfirmation()
             } catch {
                 SecureLogger.logUnlockFailure(error)
+                NSSound.beep()
             }
-            closeAfterConfirmation()
         }
     }
 

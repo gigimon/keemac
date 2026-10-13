@@ -278,6 +278,85 @@ final class OTPKindsLoaderTests: XCTestCase {
         XCTAssertEqual(reopened.otp?.counter, 3)
     }
 
+    func testMergeKeepsTheLocalCounterWhenTheOtherVersionIsNewer() async throws {
+        let (setup, _) = try await open()
+        let created = try await setup.createEntry(inGroupPath: nil, form: VaultEntryForm(
+            title: "Bank",
+            otp: VaultOTPForm(secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", kind: .hotp)
+        ))
+        let id = try entry("Bank", in: created).id
+
+        let (mac, _) = try await open()
+        let (phone, phoneVault) = try await open()
+        for _ in 0..<3 {
+            _ = try await mac.advanceHOTPCounter(id: id)
+        }
+
+        // The phone's later edit wins the merge and still has counter 0.
+        try await Task.sleep(for: .milliseconds(1100))
+        var form = VaultEntryForm(entry: try entry("Bank", in: phoneVault))
+        form.notes = "from the phone"
+        _ = try await phone.updateEntry(id: id, form: form)
+
+        let merged = try await mac.mergeExternalChanges().vault
+        let bank = try entry("Bank", in: merged)
+        XCTAssertEqual(bank.notes, "from the phone")
+        XCTAssertEqual(bank.otp?.counter, 3)
+        let reopened = try entry("Bank", in: try await open().1)
+        XCTAssertEqual(reopened.otp?.counter, 3)
+    }
+
+    func testRevertDoesNotTakeTheCounterBack() async throws {
+        let (loader, _) = try await open()
+        var vault = try await loader.createEntry(inGroupPath: nil, form: VaultEntryForm(
+            title: "Bank",
+            otp: VaultOTPForm(secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", kind: .hotp)
+        ))
+        let id = try entry("Bank", in: vault).id
+        var form = VaultEntryForm(entry: try entry("Bank", in: vault))
+        form.title = "Bank Renamed"
+        _ = try await loader.updateEntry(id: id, form: form)
+        _ = try await loader.advanceHOTPCounter(id: id)
+        _ = try await loader.advanceHOTPCounter(id: id)
+
+        vault = try await loader.revertEntry(id: id, toHistoryRevisionAt: 0)
+        let bank = try XCTUnwrap(vault.entries.first { $0.id == id })
+        XCTAssertEqual(bank.title, "Bank", "the old title is back")
+        XCTAssertEqual(bank.otp?.counter, 2, "the counter stays")
+    }
+
+    func testEditingKeepsTheOtherOTPOfAnEntryWithBoth() async throws {
+        try addRawEntry("Both", attributes: [
+            kKPKAttributeKeyTimeOTPSecretBase32: "JBSWY3DPEHPK3PXP",
+            kKPKAttributeKeyHmacOTPSecretBase32: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+            kKPKAttributeKeyHmacOTPCounter: "2"
+        ])
+        let (loader, vault) = try await open()
+        let both = try entry("Both", in: vault)
+        XCTAssertEqual(both.otp?.kind, .hotp, "KeeMac shows the HOTP")
+
+        var form = VaultEntryForm(entry: both)
+        form.url = "https://bank.example"
+        _ = try await loader.updateEntry(id: both.id, form: form)
+
+        let stored = try storedAttributes("Both")
+        XCTAssertEqual(stored[kKPKAttributeKeyTimeOTPSecretBase32], "JBSWY3DPEHPK3PXP", "the TOTP survives")
+        XCTAssertEqual(stored[kKPKAttributeKeyHmacOTPCounter], "2")
+    }
+
+    func testCounterAtTheTopCantMoveOn() async throws {
+        try addRawEntry("Top", attributes: [
+            kKPKAttributeKeyHmacOTPSecretBase32: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+            kKPKAttributeKeyHmacOTPCounter: String(UInt64.max)
+        ])
+        let (loader, vault) = try await open()
+        do {
+            _ = try await loader.advanceHOTPCounter(id: try entry("Top", in: vault).id)
+            XCTFail("the counter can't wrap around")
+        } catch {}
+        XCTAssertEqual(VaultOTPURI.parse("otpauth://hotp/x?secret=AAAA&counter=\(UInt64.max)")?.counter, Int.max)
+    }
+
     func testSteamIsStoredLikeKeePassXCAndKeeOtp() async throws {
         let (loader, _) = try await open()
         _ = try await loader.createEntry(inGroupPath: nil, form: VaultEntryForm(

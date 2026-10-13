@@ -30,7 +30,7 @@ final class EntryFormValidationTests: XCTestCase {
     func testOTPSettings() {
         var form = VaultEntryForm(title: "Mail")
         form.otp = VaultOTPForm(secret: " ")
-        XCTAssertEqual(EntryFormValidation.validate(form), "TOTP secret is required.")
+        XCTAssertEqual(EntryFormValidation.validate(form), "One-time password secret is required.")
         form.otp = VaultOTPForm(secret: "ABC", digits: 5)
         XCTAssertEqual(EntryFormValidation.validate(form), "TOTP digits must be between 6 and 9.")
         form.otp = VaultOTPForm(secret: "ABC", digits: 10)

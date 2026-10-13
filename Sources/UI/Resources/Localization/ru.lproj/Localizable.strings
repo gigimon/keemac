@@ -601,10 +601,7 @@
 "Symbols" = "Спецсимволы";
 "Sync" = "Синхронизация";
 "TOTP digits must be between 6 and 9." = "Число цифр TOTP должно быть от 6 до 9.";
-"TOTP options" = "Параметры TOTP";
 "TOTP period must be positive." = "Период TOTP должен быть больше нуля.";
-"TOTP secret" = "Секрет TOTP";
-"TOTP secret is required." = "Укажите секрет TOTP.";
 "Tags" = "Теги";
 "Templates group" = "Группа шаблонов";
 "Text" = "Текст";
@@ -1075,3 +1072,5 @@
 "Counter %lld" = "Счётчик: %lld";
 "Next code" = "Следующий код";
 "The HOTP counter can't be negative." = "Счётчик HOTP не может быть отрицательным.";
+"One-time password options" = "Параметры одноразового пароля";
+"One-time password secret is required." = "Укажите секрет одноразового пароля.";

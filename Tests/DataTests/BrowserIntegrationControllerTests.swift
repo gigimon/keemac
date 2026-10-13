@@ -495,6 +495,11 @@ final class BrowserIntegrationControllerTests: XCTestCase {
         XCTAssertEqual(second, "287922", "the next request gets the next code")
         let stored = try await fixture.storedEntry { $0.title == "Bank" }
         XCTAssertEqual(stored.otp?.counter, 7)
+
+        async let third = fixture.controller.browserTOTP(forEntry: bankID)
+        async let fourth = fixture.controller.browserTOTP(forEntry: bankID)
+        let together = await [third, fourth]
+        XCTAssertEqual(Set(together.compactMap { $0 }), ["162583", "399871"], "requests at the same time get different codes")
     }
 
     // MARK: - Saving

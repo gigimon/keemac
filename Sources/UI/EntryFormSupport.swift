@@ -60,7 +60,7 @@ enum EntryFormValidation {
 
         if let otp = form.otp {
             if otp.secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return L("TOTP secret is required.")
+                return L("One-time password secret is required.")
             }
             if otp.kind != .steam, otp.digits < 6 || otp.digits > 9 {
                 return L("TOTP digits must be between 6 and 9.")
