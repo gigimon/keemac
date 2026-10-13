@@ -78,6 +78,9 @@ enum EntryFormValidation {
             if let sequence = autoType.sequence, let error = AutoTypeSequence.validate(sequence) {
                 return L("Auto-Type: \(error.message)")
             }
+            if autoType.associations.contains(where: { $0.windowTitle.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                return L("Auto-Type: a window association needs a window title.")
+            }
             for association in autoType.associations where !association.sequence.trimmingCharacters(in: .whitespaces).isEmpty {
                 if let error = AutoTypeSequence.validate(association.sequence) {
                     return L("Auto-Type: \(error.message)")

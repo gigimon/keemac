@@ -31,6 +31,9 @@ public struct VaultAutoTypeAssociation: Identifiable, Equatable, Sendable {
     /// KeePass matching: equal titles (ignoring case), `*` wildcards over the whole title, or `//regex//`.
     public func matches(windowTitle title: String) -> Bool {
         let pattern = windowTitle.trimmingCharacters(in: .whitespaces)
+        // Patterns come from the database, which may be shared: long titles are cut and regular
+        // expressions get a time limit.
+        let title = String(title.prefix(512))
         guard !pattern.isEmpty, !title.isEmpty else {
             return false
         }
@@ -43,10 +46,41 @@ public struct VaultAutoTypeAssociation: Identifiable, Equatable, Sendable {
         } else {
             regex = "^" + pattern.components(separatedBy: "*").map(NSRegularExpression.escapedPattern(for:)).joined(separator: ".*") + "$"
         }
-        guard let expression = try? NSRegularExpression(pattern: regex, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
+        guard let expression = WindowPatternCache.expression(for: regex) else {
             return false
         }
-        return expression.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) != nil
+        // A pattern that backtracks without end gives up after a short while instead of hanging.
+        let deadline = Date().addingTimeInterval(0.05)
+        var found = false
+        expression.enumerateMatches(in: title, options: [.reportProgress], range: NSRange(title.startIndex..., in: title)) { match, _, stop in
+            if match != nil {
+                found = true
+                stop.pointee = true
+            } else if Date() > deadline {
+                stop.pointee = true
+            }
+        }
+        return found
+    }
+}
+
+/// Compiled window title patterns; matching runs for every entry on each hotkey press.
+private enum WindowPatternCache {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var expressions: [String: NSRegularExpression?] = [:]
+
+    static func expression(for pattern: String) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = expressions[pattern] {
+            return cached
+        }
+        let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators])
+        if expressions.count > 500 {
+            expressions.removeAll()
+        }
+        expressions[pattern] = expression
+        return expression
     }
 }
 

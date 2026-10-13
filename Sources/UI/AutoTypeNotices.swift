@@ -7,6 +7,10 @@ enum AutoTypeNotice: Equatable {
     case permission
     case secureInput(appName: String)
     case failed(AutoTypeSequenceError, entryTitle: String, entryID: UUID)
+    /// Focus moved to another window before or while typing.
+    case interrupted(appName: String)
+    /// Any other error, such as a database that couldn't be saved.
+    case message(title: String, body: String)
     case typing(entry: VaultEntry, appName: String)
 
     var isTyping: Bool {
@@ -114,20 +118,8 @@ final class AutoTypeNoticeController {
         return panel
     }
 
-    /// Where Quick Access opens: under the menu bar icon, or at the top right of the screen with the pointer.
     private func frame(for size: CGSize) -> NSRect {
-        let statusWindow = NSApp.windows.first { $0.className.contains("NSStatusBarWindow") && $0.isVisible }
-        let mouseScreen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
-        let screen = statusWindow?.screen ?? mouseScreen ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        var origin: NSPoint
-        if let anchor = statusWindow?.frame {
-            origin = NSPoint(x: anchor.midX - size.width / 2, y: visible.maxY - size.height - 6)
-        } else {
-            origin = NSPoint(x: visible.maxX - size.width - 12, y: visible.maxY - size.height - 6)
-        }
-        origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
-        return NSRect(origin: origin, size: size)
+        QuickAccessController.menuBarPanelFrame(for: size)
     }
 }
 
@@ -196,6 +188,29 @@ struct AutoTypeNoticeView: View {
                         .buttonStyle(KMButtonStyle(kind: .primary, height: 32, fullWidth: true, fontWeight: .semibold))
                         .accessibilityIdentifier("autoType.openSystemSettings")
                         .layoutPriority(1)
+                }
+            }
+        case .interrupted(let appName):
+            VStack(alignment: .leading, spacing: 12) {
+                header(
+                    title: L("Auto-Type stopped"),
+                    body: Text(L("The window in \(appName) lost focus, so KeeMac stopped typing."))
+                )
+                HStack {
+                    Spacer()
+                    Button(L("OK")) { perform(.dismiss) }
+                        .buttonStyle(KMButtonStyle(kind: .primary, height: 32, fontWeight: .semibold))
+                        .accessibilityIdentifier("autoType.ok")
+                }
+            }
+        case .message(let title, let body):
+            VStack(alignment: .leading, spacing: 12) {
+                header(title: title, body: Text(body))
+                HStack {
+                    Spacer()
+                    Button(L("OK")) { perform(.dismiss) }
+                        .buttonStyle(KMButtonStyle(kind: .primary, height: 32, fontWeight: .semibold))
+                        .accessibilityIdentifier("autoType.ok")
                 }
             }
         case .secureInput(let appName):

@@ -1146,3 +1146,6 @@
 "autoType.flag.off" = "Выкл";
 "Default sequence" = "Последовательность по умолчанию";
 "Auto-Type: %@" = "Автоввод: %@";
+"Auto-Type stopped" = "Автоввод остановлен";
+"The window in %@ lost focus, so KeeMac stopped typing." = "Окно в %@ потеряло фокус, и KeeMac прекратил ввод.";
+"Auto-Type: a window association needs a window title." = "Автоввод: у привязки к окну должен быть заголовок окна.";

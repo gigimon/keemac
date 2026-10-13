@@ -561,6 +561,7 @@ public final class AppViewModel {
 
         cancelIdleLockTimer()
         stopWatchingVault()
+        AutoTypeController.shared.cancelTyping()
         // Quick Access locks right after copying; the copied secret keeps its own auto-clear timer.
         if reason != .quickAccess {
             SensitiveClipboard.shared.clearSensitiveContents()

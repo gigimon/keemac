@@ -70,6 +70,8 @@ final class AutoTypeMatchingTests: XCTestCase {
         XCTAssertTrue(VaultAutoTypeAssociation(windowTitle: "//^Bank (A|B)$//").matches(windowTitle: "bank b"))
         XCTAssertFalse(VaultAutoTypeAssociation(windowTitle: "a.c").matches(windowTitle: "abc"), "dots are literal")
         XCTAssertFalse(VaultAutoTypeAssociation(windowTitle: "").matches(windowTitle: "anything"))
+        let long = String(repeating: "a", count: 5_000) + "!"
+        XCTAssertFalse(VaultAutoTypeAssociation(windowTitle: "//^(a+)+!$//").matches(windowTitle: long), "a backtracking pattern gives up instead of hanging")
     }
 
     func testInheritanceDownTheGroups() {
@@ -451,6 +453,8 @@ final class AutoTypeControllerTests: XCTestCase {
         XCTAssertEqual(EntryFormValidation.validate(form), "Auto-Type: Missing } in sequence")
         form.autoType = VaultAutoTypeSettings(associations: [VaultAutoTypeAssociation(windowTitle: "X")])
         XCTAssertNil(EntryFormValidation.validate(form), "an empty association sequence uses the entry's")
+        form.autoType = VaultAutoTypeSettings(associations: [VaultAutoTypeAssociation(windowTitle: "  ")])
+        XCTAssertEqual(EntryFormValidation.validate(form), "Auto-Type: a window association needs a window title.")
     }
 
     func testDetailSummaryShowsOnlyNonDefaultSettings() {

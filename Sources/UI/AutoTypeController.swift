@@ -15,6 +15,8 @@ public final class AutoTypeController {
     private let settings = AppSettingsStore.shared
     private var hotKey: GlobalHotKey?
     private var typingTask: Task<Void, Never>?
+    /// Escape pressed in any app while KeeMac types.
+    private var escapeMonitor: Any?
     let typist: any AutoTypeTypist = UITesting.isActive ? RecordingAutoTypeTypist() : SystemAutoTypeTypist()
 
     private init() {}
@@ -55,11 +57,18 @@ public final class AutoTypeController {
         viewModel?.requestReveal([entryID], editingAutoType: true)
     }
 
+    /// Stops typing right away (Escape, or the database locked).
+    public func cancelTyping() {
+        typingTask?.cancel()
+    }
+
     /// The shortcut was pressed.
     public func perform() {
         guard settings.autoTypeEnabled, typingTask == nil else {
             return
         }
+        // An open Quick Access panel holds the keyboard although another app is in front.
+        QuickAccessController.shared.close()
         guard AccessibilityPermission.isGranted else {
             AccessibilityPermission.request()
             AutoTypeNoticeController.shared.show(.permission)
@@ -74,7 +83,7 @@ public final class AutoTypeController {
 
     /// The UI tests' stand-in for the shortcut: a made-up browser window, keystrokes recorded.
     public func performForUITesting() {
-        guard UITesting.isActive else {
+        guard UITesting.isActive, typingTask == nil else {
             return
         }
         guard AccessibilityPermission.isGranted else {
@@ -104,50 +113,75 @@ public final class AutoTypeController {
     }
 
     /// Called by the picker; uses the entry's association for the window if it has one.
-    func type(_ entry: VaultEntry, into target: AutoTypeTarget) {
+    /// False when another sequence is still being typed.
+    @discardableResult
+    func type(_ entry: VaultEntry, into target: AutoTypeTarget) -> Bool {
         type(entry, sequence: AutoTypeMatcher.sequence(for: entry, window: target.window), into: target)
     }
 
-    private func type(_ entry: VaultEntry, sequence: String, into target: AutoTypeTarget) {
+    @discardableResult
+    private func type(_ entry: VaultEntry, sequence: String, into target: AutoTypeTarget) -> Bool {
         guard typingTask == nil else {
-            return
+            return false
         }
         typingTask = Task { [weak self] in
             await self?.run(entry, sequence: sequence, target: target)
             self?.typingTask = nil
             QuickAccessController.shared.autoTypeDidFinish()
         }
+        return true
     }
 
     private func run(_ entry: VaultEntry, sequence: String, target: AutoTypeTarget) async {
         let notices = AutoTypeNoticeController.shared
-        let actions: [AutoTypeAction]
+        let tokens: [AutoTypeToken]
         do {
-            let tokens = try AutoTypeSequence.parse(sequence)
-            actions = try await resolve(tokens, for: entry)
-        } catch let error as AutoTypeSequenceError {
-            notices.show(.failed(error, entryTitle: entry.title, entryID: entry.id))
-            return
+            tokens = try AutoTypeSequence.parse(sequence)
         } catch {
-            notices.show(.failed(.empty, entryTitle: entry.title, entryID: entry.id))
+            notices.show(.failed(error as? AutoTypeSequenceError ?? .empty, entryTitle: entry.title, entryID: entry.id))
             return
         }
 
-        guard await bringToFront(target) else {
+        // Everything that can stop typing comes before the values: an HOTP code is used up when it is resolved.
+        guard await bringToFront(target), await AutoTypeKeyboard.waitForModifierRelease() else {
             NSSound.beep()
             return
         }
-        _ = await AutoTypeKeyboard.waitForModifierRelease()
         guard !AutoTypeKeyboard.isSecureInputOn else {
             notices.show(.secureInput(appName: target.window.appName))
             return
         }
 
-        notices.show(.typing(entry: entry, appName: target.window.appName))
+        let actions: [AutoTypeAction]
         do {
-            try await typist.type(actions, keyDelay: settings.autoTypeKeyDelay)
+            actions = try await resolve(tokens, for: entry)
+        } catch let error as AutoTypeSequenceError {
+            notices.show(.failed(error, entryTitle: entry.title, entryID: entry.id))
+            return
         } catch {
-            SecureLogger.logUnlockFailure(error)
+            notices.show(.message(title: L("Auto-Type failed"), body: error.localizedDescription))
+            return
+        }
+        // Saving an HOTP counter takes a moment; focus may have moved meanwhile.
+        guard !Task.isCancelled, isFront(target) else {
+            notices.show(.interrupted(appName: target.window.appName))
+            return
+        }
+
+        notices.show(.typing(entry: entry, appName: target.window.appName))
+        startWatchingEscape()
+        defer { stopWatchingEscape() }
+        do {
+            try await typist.type(actions, keyDelay: settings.autoTypeKeyDelay) { [weak self] in
+                self?.isFront(target) ?? false
+            }
+        } catch is AutoTypeInterrupted {
+            notices.show(.interrupted(appName: target.window.appName))
+            return
+        } catch {
+            // Cancelled with Escape or because the database locked.
+            notices.hideTyping()
+            return
         }
         notices.hideTyping()
         viewModel?.recordEntryUsage(id: entry.id)
@@ -155,6 +189,33 @@ public final class AutoTypeController {
         if UITesting.isActive {
             recordForUITesting(actions)
         }
+    }
+
+    private func isFront(_ target: AutoTypeTarget) -> Bool {
+        UITesting.isActive || AutoTypeWindowReader.isFront(target)
+    }
+
+    /// Escape in any app stops typing; KeeMac's own `{ESC}` keystrokes carry a marker and don't count.
+    private func startWatchingEscape() {
+        guard escapeMonitor == nil, !UITesting.isActive else {
+            return
+        }
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53,
+                  event.cgEvent?.getIntegerValueField(.eventSourceUserData) != autoTypeEventMarker else {
+                return
+            }
+            Task { @MainActor in
+                AutoTypeController.shared.cancelTyping()
+            }
+        }
+    }
+
+    private func stopWatchingEscape() {
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+        }
+        escapeMonitor = nil
     }
 
     /// The picker never activated KeeMac, but Touch ID or a click elsewhere may have moved focus.

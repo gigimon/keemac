@@ -151,7 +151,10 @@ public final class QuickAccessController: NSObject, NSWindowDelegate {
         }
         isAutoTyping = true
         close()
-        AutoTypeController.shared.type(entry, into: target)
+        if !AutoTypeController.shared.type(entry, into: target) {
+            isAutoTyping = false
+            scheduleRelock()
+        }
     }
 
     public func windowDidResignKey(_ notification: Notification) {
@@ -183,8 +186,13 @@ public final class QuickAccessController: NSObject, NSWindowDelegate {
         return panel
     }
 
-    /// Under the menu bar icon, or at the top right of the screen with the pointer when the icon can't be found.
     private func frame(for size: CGSize) -> NSRect {
+        Self.menuBarPanelFrame(for: size)
+    }
+
+    /// Under the menu bar icon, or at the top right of the screen with the pointer when the icon can't be found.
+    /// Auto-Type's notices open in the same place.
+    static func menuBarPanelFrame(for size: CGSize) -> NSRect {
         let statusWindow = NSApp.windows.first { $0.className.contains("NSStatusBarWindow") && $0.isVisible }
         let mouseScreen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
         let screen = statusWindow?.screen ?? mouseScreen ?? NSScreen.main
@@ -296,12 +304,25 @@ final class QuickAccessModel {
         autoTypeTarget != nil
     }
 
-    /// Entries for the Auto-Type window, filtered by the search text.
-    var autoTypeMatches: [AutoTypeMatch] {
+    /// Matches for the window, worked out once: the window doesn't change and the database can't be
+    /// edited while the panel is open. Unlocking clears it.
+    @ObservationIgnored private var cachedAutoTypeMatches: [AutoTypeMatch]?
+
+    private var allAutoTypeMatches: [AutoTypeMatch] {
         guard let vault, let target = autoTypeTarget else {
             return []
         }
+        if let cachedAutoTypeMatches {
+            return cachedAutoTypeMatches
+        }
         let matches = AutoTypeMatcher.matches(in: vault.entries, window: target.window)
+        cachedAutoTypeMatches = matches
+        return matches
+    }
+
+    /// Entries for the Auto-Type window, filtered by the search text.
+    var autoTypeMatches: [AutoTypeMatch] {
+        let matches = allAutoTypeMatches
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return matches
@@ -331,10 +352,7 @@ final class QuickAccessModel {
 
     /// Does any entry match the window, before the search text filters them?
     var hasAutoTypeMatches: Bool {
-        guard let vault, let target = autoTypeTarget else {
-            return false
-        }
-        return !AutoTypeMatcher.matches(in: vault.entries, window: target.window).isEmpty
+        !allAutoTypeMatches.isEmpty
     }
 
     private var searchContext: VaultEntrySearch.Context {
@@ -582,6 +600,7 @@ final class QuickAccessModel {
     private func finishUnlock() {
         isAuthenticating = false
         if viewModel.loadState.isUnlocked {
+            cachedAutoTypeMatches = nil
             actions.didUnlock()
             query = ""
             // Auto-Type waited for the database: one match types right away.

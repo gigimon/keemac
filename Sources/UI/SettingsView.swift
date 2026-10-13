@@ -102,10 +102,11 @@ public struct SettingsView: View {
             // Back from System Settings › Accessibility.
             accessibilityGranted = AccessibilityPermission.isGranted
         }
-        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-            // KeeMac may not become active again after the switch is turned on.
-            if selectedTab == .autoType {
+        .task(id: selectedTab) {
+            // KeeMac may not become active again after the switch is turned on in System Settings.
+            while selectedTab == .autoType, !Task.isCancelled {
                 accessibilityGranted = AccessibilityPermission.isGranted
+                try? await Task.sleep(for: .seconds(2))
             }
         }
         .sheet(isPresented: $showsSSHImport) {
@@ -157,6 +158,7 @@ public struct SettingsView: View {
                         AccessibilityPermission.request()
                         AccessibilityPermission.openSystemSettings()
                     }
+                    .buttonStyle(KMButtonStyle(kind: .raised, height: 24, horizontalPadding: 12, fontWeight: .regular, fontSize: 12))
                     .accessibilityIdentifier("settings.autoType.openSystemSettings")
                 }
             }

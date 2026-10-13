@@ -2218,6 +2218,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         let flag: KPKInheritBool
         switch settings.enabled {
         case .inherit:
+            // `KPKInherit` (-1) has no Swift name: its case name is the enum's common prefix.
             flag = KPKInheritBool(rawValue: -1) ?? .NO
         case .on:
             flag = .YES

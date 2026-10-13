@@ -355,6 +355,7 @@ struct EntryEditorPane: View {
                         SSHAgentEditorSection(form: $form)
                     }
 
+                    if form.entryType == .login {
                     row(L("auto-type"), alignTop: true) {
                         AutoTypeEditorSection(
                             settings: Binding(
@@ -364,6 +365,7 @@ struct EntryEditorPane: View {
                             inheritance: entry.autoTypeInheritance,
                             isExpanded: $showsAutoType
                         )
+                    }
                     }
 
                     row(L("custom fields"), alignTop: !form.customFields.isEmpty) {

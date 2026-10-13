@@ -36,6 +36,8 @@ struct AutoTypeTarget: Equatable {
     let window: AutoTypeWindow
     let processIdentifier: pid_t
     let appIcon: NSImage?
+    /// The focused window itself, to notice when focus moves to another window of the same app.
+    var windowElement: AXUIElement?
 
     static func == (lhs: AutoTypeTarget, rhs: AutoTypeTarget) -> Bool {
         lhs.window == rhs.window && lhs.processIdentifier == rhs.processIdentifier
@@ -60,6 +62,10 @@ enum AutoTypeWindowReader {
         "com.operasoftware.Opera"
     ]
 
+    /// A busy or hung app answers each Accessibility call within this many seconds, so the
+    /// hotkey can't freeze KeeMac.
+    private static let messagingTimeout: Float = 0.5
+
     /// Nil when the frontmost app is KeeMac or nothing is in front.
     static func frontmostTarget() -> AutoTypeTarget? {
         guard let app = NSWorkspace.shared.frontmostApplication,
@@ -67,11 +73,12 @@ enum AutoTypeWindowReader {
             return nil
         }
         let element = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
         let window: AXUIElement? = attribute(element, kAXFocusedWindowAttribute)
         let title = window.flatMap { stringAttribute($0, kAXTitleAttribute) } ?? ""
         var url: String?
         if let window, let bundleID = app.bundleIdentifier, browserBundleIdentifiers.contains(bundleID) {
-            url = browserURL(in: window)
+            url = browserURL(in: window, focused: attribute(element, kAXFocusedUIElementAttribute))
         }
         return AutoTypeTarget(
             window: AutoTypeWindow(
@@ -81,19 +88,41 @@ enum AutoTypeWindowReader {
                 url: url
             ),
             processIdentifier: app.processIdentifier,
-            appIcon: app.icon
+            appIcon: app.icon,
+            windowElement: window
         )
     }
 
-    /// Safari's window document, a web area's URL, or the address field's text.
-    private static func browserURL(in window: AXUIElement) -> String? {
+    /// The target app is still in front with the same window focused.
+    static func isFront(_ target: AutoTypeTarget) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier else {
+            return false
+        }
+        guard let expected = target.windowElement else {
+            return true
+        }
+        let element = AXUIElementCreateApplication(target.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        guard let window: AXUIElement = attribute(element, kAXFocusedWindowAttribute) else {
+            return false
+        }
+        return CFEqual(window, expected)
+    }
+
+    /// Safari's window document, a web area's URL, or the address field's text. Nil while the address
+    /// field is being edited: its text isn't the page, and the keystrokes would go into it.
+    private static func browserURL(in window: AXUIElement, focused: AXUIElement?) -> String? {
+        if let focused, stringAttribute(focused, kAXRoleAttribute) == kAXTextFieldRole,
+           let value = stringAttribute(focused, kAXValueAttribute), looksLikeAddress(value) {
+            return nil
+        }
         if let document = stringAttribute(window, kAXDocumentAttribute), document.contains("://") {
             return document
         }
         var queue: [(AXUIElement, Int)] = [(window, 0)]
         var visited = 0
         var addressField: String?
-        while !queue.isEmpty, visited < 600 {
+        while !queue.isEmpty, visited < 300 {
             let (element, depth) = queue.removeFirst()
             visited += 1
             let role = stringAttribute(element, kAXRoleAttribute)
@@ -143,11 +172,18 @@ enum AutoTypeWindowReader {
     }
 }
 
-/// Posts the keystrokes of a resolved sequence.
+/// Focus left the window Auto-Type started typing into.
+struct AutoTypeInterrupted: Error {}
+
+/// Posts the keystrokes of a resolved sequence. `isTargetFront` is asked before every keystroke;
+/// when it says no, typing stops with `AutoTypeInterrupted`.
 @MainActor
 protocol AutoTypeTypist: AnyObject {
-    func type(_ actions: [AutoTypeAction], keyDelay: Int) async throws
+    func type(_ actions: [AutoTypeAction], keyDelay: Int, isTargetFront: () -> Bool) async throws
 }
+
+/// Marks KeeMac's own keystrokes, so the Escape that cancels typing ignores a typed `{ESC}`.
+let autoTypeEventMarker: Int64 = 0x4B4D_4154
 
 /// Types into whatever app is in front with Quartz keyboard events. Text goes as Unicode, so the
 /// keyboard layout doesn't matter; named keys and shortcuts use virtual key codes.
@@ -155,14 +191,20 @@ protocol AutoTypeTypist: AnyObject {
 final class SystemAutoTypeTypist: AutoTypeTypist {
     private let source = CGEventSource(stateID: .privateState)
 
-    func type(_ actions: [AutoTypeAction], keyDelay: Int) async throws {
+    func type(_ actions: [AutoTypeAction], keyDelay: Int, isTargetFront: () -> Bool) async throws {
         var delay = keyDelay
-        for action in actions {
+        func check() throws {
             try Task.checkCancellation()
+            guard isTargetFront() else {
+                throw AutoTypeInterrupted()
+            }
+        }
+        for action in actions {
+            try check()
             switch action {
             case .text(let text):
                 for character in text {
-                    try Task.checkCancellation()
+                    try check()
                     switch character {
                     case "\n", "\r", "\r\n":
                         press(keyCode: CGKeyCode(kVK_Return), flags: [])
@@ -207,6 +249,7 @@ final class SystemAutoTypeTypist: AutoTypeTypist {
                 continue
             }
             event.flags = []
+            event.setIntegerValueField(.eventSourceUserData, value: autoTypeEventMarker)
             units.withUnsafeBufferPointer { buffer in
                 event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
             }
@@ -225,6 +268,7 @@ final class SystemAutoTypeTypist: AutoTypeTypist {
                 continue
             }
             event.flags = flags
+            event.setIntegerValueField(.eventSourceUserData, value: autoTypeEventMarker)
             units.withUnsafeBufferPointer { buffer in
                 event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
             }
@@ -238,6 +282,7 @@ final class SystemAutoTypeTypist: AutoTypeTypist {
                 continue
             }
             event.flags = flags
+            event.setIntegerValueField(.eventSourceUserData, value: autoTypeEventMarker)
             event.post(tap: .cghidEventTap)
         }
     }
@@ -302,7 +347,7 @@ final class SystemAutoTypeTypist: AutoTypeTypist {
 final class RecordingAutoTypeTypist: AutoTypeTypist {
     private(set) var typed: [[AutoTypeAction]] = []
 
-    func type(_ actions: [AutoTypeAction], keyDelay: Int) async throws {
+    func type(_ actions: [AutoTypeAction], keyDelay: Int, isTargetFront: () -> Bool) async throws {
         typed.append(actions)
     }
 }

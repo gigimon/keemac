@@ -78,7 +78,7 @@ Not covered: a master key changed on another device, clocks that disagree betwee
 ### Auto-Type
 - A global shortcut (⌃⌥⌘A by default) types the matching entry into the frontmost window of any app: `{USERNAME}{TAB}{PASSWORD}{ENTER}` unless the entry or its group sets another sequence. Text is typed as Unicode, so the keyboard layout doesn't matter.
 - Entries are matched by window associations (`*` wildcards, `//regex//`), by the entry title in the window title, and in Safari and Chromium browsers by the tab address. One match types right away; otherwise Quick Access opens to pick an entry (it unlocks the database first when needed).
-- Sequences follow KeePass: field placeholders, `{S:Field}`, `{REF:…}`, `{TOTP}`, named keys with repeats (`{TAB 2}`), modifiers `+ ^ % @`, `{DELAY 500}`, `{DELAY=50}`, `{CLEARFIELD}`. Entry and group settings are stored in the KeePass format, so KeePassXC and MacPass read them.
+- Sequences follow KeePass: field placeholders, `{S:Field}`, `{REF:…}`, `{TOTP}`, named keys with repeats (`{TAB 2}`), modifiers `+` ⇧, `^` ⌘, `%` ⌥, `@`/`#` ⌃, `{DELAY 500}`, `{DELAY=50}`, `{CLEARFIELD}`. Entry and group settings are stored in the KeePass format, so KeePassXC and MacPass read them.
 - Needs Accessibility access (Settings → Auto-Type shows its state). When another app has Secure Keyboard Entry on, KeeMac says so instead of typing.
 
 ### Languages
