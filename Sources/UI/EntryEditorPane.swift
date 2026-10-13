@@ -228,6 +228,7 @@ struct EntryEditorPane: View {
                                 .font(.system(size: 13, design: .monospaced))
                                 .focused($focusedField, equals: .otp)
                                 .kmField(focused: focusedField == .otp)
+                                .accessibilityIdentifier("editor.otpSecret")
                                 .onChange(of: otpInput) { _, newValue in
                                     form.otp = OTPInputParser.apply(newValue, to: form.otp)
                                     if let kind = form.otp?.kind, kind != .totp {
@@ -248,6 +249,7 @@ struct EntryEditorPane: View {
                             }
                             .buttonStyle(KMIconButtonStyle(cornerRadius: 7, tint: showOTPOptions ? KM.accent : KM.textPrimary, filled: true))
                             .iconHelp(L("TOTP options"))
+                            .accessibilityIdentifier("editor.otpOptions")
                             .disabled(form.otp == nil)
                         }
                         .overlay(
