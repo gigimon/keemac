@@ -82,12 +82,8 @@ struct AutoTypeSequenceEditor: View {
                     TextField("", text: text)
                         .font(.system(size: 13, design: .monospaced))
                         .textFieldStyle(.plain)
-                        .kmField()
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .strokeBorder(KM.danger, lineWidth: error == nil ? 0 : 1)
-                        )
                         .accessibilityIdentifier("\(identifierPrefix).sequence")
+                        .kmField(invalid: error != nil)
                     Menu {
                         ForEach(Self.insertItems, id: \.1) { item in
                             Button("\(item.0)  \(item.1)") {
@@ -274,18 +270,14 @@ struct AutoTypeEditorSection: View {
             TextField("*Steam*", text: association.windowTitle)
                 .font(.system(size: 12))
                 .textFieldStyle(.plain)
-                .kmField(height: 26)
                 .accessibilityIdentifier("editor.autoType.association.\(index).title")
+                .kmField(height: 26)
             TextField(L("Use entry sequence"), text: association.sequence)
                 .font(.system(size: 12, design: .monospaced))
                 .textFieldStyle(.plain)
-                .kmField(height: 26)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(KM.danger, lineWidth: error == nil ? 0 : 1)
-                )
-                .help(error?.message ?? "")
                 .accessibilityIdentifier("editor.autoType.association.\(index).sequence")
+                .kmField(invalid: error != nil, height: 26)
+                .help(error?.message ?? "")
             Button {
                 settings.associations.removeAll { $0.id == association.wrappedValue.id }
             } label: {
