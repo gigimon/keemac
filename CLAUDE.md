@@ -83,6 +83,13 @@ swift test                       # XCTest suite (DataTests)
 - Library rows, favorites, tags, the report, expiry reminders, Quick Access and browser integration use the main database only; search covers every unlocked one.
 - Moving or copying between databases: the source packs a payload (`makeTransferPayload`, references replaced by values, UUIDs kept), the target reports conflicts by UUID or title + username and receives it with per-entry decisions (`receiveTransfer`), and after a move the source trashes the originals (`trashTransferredEntries`). Each side is one undo step (`receiveEntries` / `sendEntries`); `undoLastTransfer` takes back both while they are still the last change. Moving a group node across KeePassKit trees loses its children, so groups are rebuilt with `transplant`.
 
+## Auto-Type
+
+- Plan and decisions: `docs/plans/2026-10-13-auto-type.md`. Settings live in KeePass's own fields through KeePassKit (`KPKEntry.autotype`, `KPKGroup.isAutoTypeEnabled` / `defaultAutoTypeSequence`); the loader works out group inheritance itself (`VaultAutoTypeInheritance`) because KeePassKit's `isAutotypeable` reads the parent's raw flag. `VaultEntryForm.autoType == nil` leaves an entry's settings untouched.
+- Domain: `AutoTypeSequence` parses KeePass sequences into tokens (placeholders stay tokens, so typed values are never read as commands), `AutoTypeMatcher` picks login entries by association, browser tab URL (`BrowserURLMatcher`) and title.
+- UI: `AutoTypeController` (global hotkey, placeholder values incl. `{TOTP}` and HOTP advance, typing), `AutoTypeSystem.swift` (Accessibility, window/URL reading through AX, `SystemAutoTypeTypist` posting Unicode `CGEvent`s), `AutoTypeNotices.swift` (typing / permission / Secure Input / failure panel), Quick Access's Auto-Type mode (picker, unlock and type). `GlobalHotKey` keeps one handler per hotkey ID.
+- UI testing mode: no hotkey; Vault → "Perform Auto-Type" stands in for it with a fake Safari window (`KEEMAC_UI_TEST_AUTOTYPE_TITLE` / `_URL`), `KEEMAC_UI_TEST_AUTOTYPE_PERMISSION=denied` removes the permission, and what would be typed lands on the UI test pasteboard with keys as `{TAB}`.
+
 ## SSH agent
 
 - Plan and decisions: `docs/steps/step-9-ssh-agent.md`. KeeMac runs its own agent on `~/.keemac/agent.sock` (`SSHAgent` module: `SSHAgentServer`, key reading in `SSHKey.swift`, `SSHConfigSetup`, host matching); `SSHAgentController` (UI) answers it from the main database and shows the floating request / unlock panels.
