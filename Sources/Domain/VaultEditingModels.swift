@@ -142,3 +142,82 @@ public struct VaultUndoState: Sendable, Equatable {
 
     public static let empty = VaultUndoState()
 }
+
+/// `otpauth://` URIs: `totp`, `hotp` (with `counter`) and Steam, written by KeePassXC as
+/// `otpauth://totp/…&encoder=steam` (some apps use the `steam` host).
+public enum VaultOTPURI {
+    public static let steamDigits = 5
+    public static let steamPeriod = 30
+
+    /// The URI's settings as a form; nil when the text isn't an `otpauth://` URI.
+    /// Settings missing from the URI or unreadable keep their values from `base`.
+    public static func parse(_ text: String, base: VaultOTPForm? = nil) -> VaultOTPForm? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix("otpauth://"),
+              let components = URLComponents(string: trimmed) else {
+            return nil
+        }
+
+        let items = Dictionary(
+            (components.queryItems ?? []).map { ($0.name.lowercased(), $0.value ?? "") },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var form = base ?? VaultOTPForm(secret: "")
+        form.secret = (items["secret"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        form.kind = .totp
+        if let digits = items["digits"].flatMap(Int.init) {
+            form.digits = digits
+        }
+        if let period = items["period"].flatMap(Int.init) {
+            form.period = period
+        }
+        switch items["algorithm"]?.uppercased() {
+        case "SHA256":
+            form.algorithm = .sha256
+        case "SHA512":
+            form.algorithm = .sha512
+        case "SHA1":
+            form.algorithm = .sha1
+        default:
+            break
+        }
+
+        let host = components.host?.lowercased()
+        if host == "hotp" {
+            form.kind = .hotp
+            form.counter = max(items["counter"].flatMap(Int.init) ?? 0, 0)
+        } else if host == "steam" || items["encoder"]?.lowercased() == "steam" {
+            form.kind = .steam
+            form.digits = steamDigits
+            form.period = steamPeriod
+            form.algorithm = .sha1
+        } else if base?.kind == .steam {
+            // Steam's fixed settings don't carry over to a TOTP URI that leaves them out.
+            form.digits = items["digits"].flatMap(Int.init) ?? 6
+            form.period = items["period"].flatMap(Int.init) ?? 30
+        }
+        return form
+    }
+
+    /// Builds the URI for a Base32 secret.
+    public static func make(
+        kind: VaultOTPKind,
+        secret: String,
+        label: String,
+        digits: Int,
+        period: Int,
+        algorithm: VaultOTPAlgorithm,
+        counter: UInt64
+    ) -> String {
+        let encodedLabel = label.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? label
+        let algorithmName = algorithm.rawValue.uppercased()
+        switch kind {
+        case .totp:
+            return "otpauth://totp/\(encodedLabel)?secret=\(secret)&algorithm=\(algorithmName)&digits=\(digits)&period=\(period)"
+        case .hotp:
+            return "otpauth://hotp/\(encodedLabel)?secret=\(secret)&algorithm=\(algorithmName)&digits=\(digits)&counter=\(counter)"
+        case .steam:
+            return "otpauth://totp/\(encodedLabel)?secret=\(secret)&period=\(steamPeriod)&digits=\(steamDigits)&issuer=Steam&encoder=steam"
+        }
+    }
+}

@@ -176,6 +176,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             let metadata = keepsMetadata ? currentSession.tree.metaData.map(MetadataSnapshot.init) : nil
             currentSession.editingDelegate.withoutUndo {
                 currentSession.tree.synchronize(with: tree, mode: .synchronize, options: [])
+                Self.keepHighestHOTPCounters(in: currentSession.tree, from: tree)
             }
             if let metadata, let meta = currentSession.tree.metaData {
                 metadata.restore(into: meta)
@@ -234,6 +235,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
 
         session.editingDelegate.withoutUndo {
             session.tree.synchronize(with: external, mode: .synchronize, options: [])
+            Self.keepHighestHOTPCounters(in: session.tree, from: external)
             Self.adoptRecycleBin(from: external, into: session.tree)
         }
 
@@ -310,6 +312,24 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
+    /// Moves an HOTP entry to its next code and saves. The counter isn't an edit the user
+    /// would want back: no history version, no undo step.
+    public func advanceHOTPCounter(id: UUID) async throws -> LoadedVault {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        guard let entry = Self.findEntry(in: currentSession.tree, id: id),
+              let otp = Self.makeOTPConfiguration(from: entry)?.configuration,
+              otp.kind == .hotp else {
+            throw VaultError.parseFailure(details: "Entry has no counter-based one-time password.")
+        }
+
+        Self.setHOTPCounter(otp.counter + 1, on: entry)
+        entry.timeInfo.modificationDate = Date()
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
     public func savePendingChanges() async throws {
         guard hasPendingUsageChanges, let currentSession = session else {
             return
@@ -380,6 +400,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         let snapshotVault = Self.mapTree(snapshotTree, fileURL: session.fileURL)
         session.editingDelegate.withoutUndo {
             session.tree.synchronize(with: snapshotTree, mode: .synchronize, options: [])
+            Self.keepHighestHOTPCounters(in: session.tree, from: snapshotTree)
         }
         Self.adoptRecycleBin(from: snapshotTree, into: session.tree)
         let after = Self.mapTree(session.tree, fileURL: session.fileURL)
@@ -1002,7 +1023,11 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                     Self.upsertCustomAttribute(on: entry, key: field.key, value: field.value, protect: field.isProtected)
                 }
                 if let otp = Self.otpAuthURI(from: item.otp, title: item.title) {
-                    Self.upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: otp, protect: true)
+                    if let form = VaultOTPURI.parse(otp), form.kind == .hotp {
+                        try? Self.applyOTP(form, to: entry, title: item.title)
+                    } else {
+                        Self.upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: otp, protect: true)
+                    }
                 }
                 if item.isSecureNote {
                     entry.setCustomData(VaultEntryType.note.rawValue, forKey: VaultEntryType.customDataKey)
@@ -1399,22 +1424,25 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return "otpauth://totp/\(label)?secret=\(secret)"
     }
 
-    /// The entry's TOTP as an `otpauth://` URI, for CSV export.
+    /// The entry's one-time password as an `otpauth://` URI, for CSV export.
     private static func otpAuthURI(for entry: KPKEntry) -> String? {
-        if let uri = entry.customAttributes?.first(where: { $0.key == kKPKAttributeKeyOTPOAuthURL })?.value, uri.lowercased().hasPrefix("otpauth://") {
-            return uri
-        }
         guard let otp = makeOTPConfiguration(from: entry)?.configuration else {
             return nil
         }
-        let label = (entry.title ?? "").addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""
-        let algorithm: String
-        switch otp.algorithm {
-        case .sha1: algorithm = "SHA1"
-        case .sha256: algorithm = "SHA256"
-        case .sha512: algorithm = "SHA512"
+        if otp.kind != .hotp,
+           let uri = entry.customAttributes?.first(where: { $0.key == kKPKAttributeKeyOTPOAuthURL })?.value,
+           uri.lowercased().hasPrefix("otpauth://") {
+            return uri
         }
-        return "otpauth://totp/\(label)?secret=\(encodeBase32(otp.secret))&period=\(otp.period)&digits=\(otp.digits)&algorithm=\(algorithm)"
+        return VaultOTPURI.make(
+            kind: otp.kind,
+            secret: encodeBase32(otp.secret),
+            label: entry.title ?? "",
+            digits: otp.digits,
+            period: otp.period,
+            algorithm: otp.algorithm,
+            counter: otp.counter
+        )
     }
 
     // MARK: - Undo
@@ -2397,25 +2425,70 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             return
         }
 
-        let secretData = try decodeOTPSecretInput(otp.secret)
+        let secret = encodeBase32(try decodeOTPSecretInput(otp.secret))
         let clampedDigits = min(max(otp.digits, 6), 9)
         let period = max(otp.period, 1)
+        let counter = UInt64(max(otp.counter, 0))
 
-        switch otp.storageStyle {
-        case .otpAuth:
-            let secret = encodeBase32(secretData)
-            let encodedLabel = title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? title
-            let algorithm = otp.algorithm.rawValue.uppercased()
-            let otpURL = "otpauth://totp/\(encodedLabel)?secret=\(secret)&algorithm=\(algorithm)&digits=\(clampedDigits)&period=\(period)"
-            upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: otpURL, protect: false)
+        switch (otp.kind, otp.storageStyle) {
+        case (.hotp, _):
+            // KeePass stores HOTP natively; its fields have no digits or algorithm, so other
+            // settings also go into an `otpauth://hotp` URI.
+            upsertCustomAttribute(on: entry, key: kKPKAttributeKeyHmacOTPSecretBase32, value: secret, protect: true)
+            upsertCustomAttribute(on: entry, key: kKPKAttributeKeyHmacOTPCounter, value: String(counter), protect: false)
+            if clampedDigits != 6 || otp.algorithm != .sha1 {
+                let uri = VaultOTPURI.make(kind: .hotp, secret: secret, label: title, digits: clampedDigits, period: period, algorithm: otp.algorithm, counter: counter)
+                upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: uri, protect: false)
+            }
 
-        case .native:
-            let secret = encodeBase32(secretData)
+        case (.steam, .native):
+            // KeeOtp's format, also read by KeePassXC.
+            upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPSeed, value: secret, protect: true)
+            upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPSettings, value: "\(VaultOTPURI.steamPeriod);S", protect: false)
+
+        case (.steam, .otpAuth), (.totp, .otpAuth):
+            let uri = VaultOTPURI.make(kind: otp.kind, secret: secret, label: title, digits: clampedDigits, period: period, algorithm: otp.algorithm, counter: 0)
+            upsertCustomAttribute(on: entry, key: kKPKAttributeKeyOTPOAuthURL, value: uri, protect: false)
+
+        case (.totp, .native):
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPSecretBase32, value: secret, protect: true)
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPLength, value: String(clampedDigits), protect: false)
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPPeriod, value: String(period), protect: false)
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPAlgorithm, value: otpAlgorithmValue(otp.algorithm), protect: false)
             upsertCustomAttribute(on: entry, key: kKPKAttributeKeyTimeOTPSettings, value: "period=\(period);digits=\(clampedDigits)", protect: false)
+        }
+    }
+
+    /// Stores the HOTP counter of the next code, in the native field and in an `otpauth://hotp` URI if there is one.
+    private static func setHOTPCounter(_ counter: UInt64, on entry: KPKEntry) {
+        upsertCustomAttribute(on: entry, key: kKPKAttributeKeyHmacOTPCounter, value: String(counter), protect: false)
+        guard let attribute = entry.customAttribute(withKey: kKPKAttributeKeyOTPOAuthURL),
+              var components = URLComponents(string: attribute.value ?? ""),
+              components.host?.lowercased() == "hotp" else {
+            return
+        }
+        var items = (components.queryItems ?? []).filter { $0.name.lowercased() != "counter" }
+        items.append(URLQueryItem(name: "counter", value: String(counter)))
+        components.queryItems = items
+        if let uri = components.string {
+            attribute.value = uri
+        }
+    }
+
+    /// A merge keeps the newer entry, but an HOTP counter must never go back: a lower one
+    /// would hand out codes the server has already seen.
+    private static func keepHighestHOTPCounters(in target: KPKTree, from source: KPKTree) {
+        for incomingEntry in source.allEntries where !incomingEntry.isHistory {
+            guard let incoming = makeOTPConfiguration(from: incomingEntry)?.configuration,
+                  incoming.kind == .hotp,
+                  let local = target.allEntries.first(where: { !$0.isHistory && $0.uuid == incomingEntry.uuid }),
+                  let current = makeOTPConfiguration(from: local)?.configuration,
+                  current.kind == .hotp,
+                  current.secret == incoming.secret,
+                  current.counter < incoming.counter else {
+                continue
+            }
+            setHOTPCounter(incoming.counter, on: local)
         }
     }
 
@@ -2529,14 +2602,17 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     }
 
     private static func makeOTPConfiguration(from entry: KPKEntry) -> ResolvedOTP? {
-        guard entry.hasTimeOTP, !entry.hasSteamOTP else {
+        let fromURI = parseOTPAuthConfiguration(from: entry)
+        if let hotp = parseHmacOTPConfiguration(from: entry, uri: fromURI?.configuration) {
+            return hotp
+        }
+        if let fromURI {
+            return fromURI
+        }
+        guard entry.hasTimeOTP else {
             return nil
         }
-
-        if let fromURL = parseOTPAuthConfiguration(from: entry) {
-            return fromURL
-        }
-        return parseNativeTimeOTPConfiguration(from: entry)
+        return parseNativeTimeOTPConfiguration(from: entry, isSteam: entry.hasSteamOTP)
     }
 
     private static func iconData(from icon: KPKIcon?) -> Data? {
@@ -2557,49 +2633,70 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     }
 
     private static func parseOTPAuthConfiguration(from entry: KPKEntry) -> ResolvedOTP? {
-        guard
-            let otpURLString = entry.valueForAttribute(withKey: kKPKAttributeKeyOTPOAuthURL),
-            let urlComponents = URLComponents(string: otpURLString)
-        else {
+        guard let uri = entry.valueForAttribute(withKey: kKPKAttributeKeyOTPOAuthURL),
+              let form = VaultOTPURI.parse(uri),
+              !form.secret.isEmpty,
+              let secret = decodeBase32(form.secret) ?? Data(base64Encoded: form.secret) else {
             return nil
         }
-
-        if let host = urlComponents.host?.lowercased(), host == "steam" {
-            return nil
-        }
-
-        let queryItems = Dictionary(
-            uniqueKeysWithValues: (urlComponents.queryItems ?? []).map { item in
-                (item.name.lowercased(), item.value ?? "")
-            }
-        )
-
-        guard let secretText = queryItems["secret"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !secretText.isEmpty else {
-            return nil
-        }
-
-        guard let secret = decodeBase32(secretText) ?? Data(base64Encoded: secretText) else {
-            return nil
-        }
-
-        let digits = clampDigits(Int(queryItems["digits"] ?? ""))
-        let period = max(Int(queryItems["period"] ?? "") ?? 30, 1)
-        let algorithm = parseOTPAlgorithm(queryItems["algorithm"])
 
         return ResolvedOTP(
             configuration: VaultOTPConfiguration(
                 secret: secret,
-                digits: digits,
-                period: period,
+                digits: form.kind == .steam ? VaultOTPURI.steamDigits : clampDigits(form.digits),
+                period: max(form.period, 1),
                 timeBase: 0,
-                algorithm: algorithm
+                algorithm: form.algorithm,
+                kind: form.kind,
+                counter: UInt64(form.counter)
             ),
             storageStyle: .otpAuth
         )
     }
 
-    private static func parseNativeTimeOTPConfiguration(from entry: KPKEntry) -> ResolvedOTP? {
+    /// KeePass 2.47 `HmacOtp-*` fields. Digits and algorithm come from an `otpauth://hotp` URI when there is one;
+    /// the native counter wins because it is what KeePass advances.
+    private static func parseHmacOTPConfiguration(from entry: KPKEntry, uri: VaultOTPConfiguration?) -> ResolvedOTP? {
+        let secret = decodeHmacOTPSecret(from: entry)
+        guard !secret.isEmpty else {
+            return nil
+        }
+        let uri = uri?.kind == .hotp ? uri : nil
+        let counter = UInt64(entry.valueForAttribute(withKey: kKPKAttributeKeyHmacOTPCounter)?
+            .trimmingCharacters(in: .whitespaces) ?? "") ?? uri?.counter ?? 0
+
+        return ResolvedOTP(
+            configuration: VaultOTPConfiguration(
+                secret: secret,
+                digits: uri?.digits ?? 6,
+                period: 30,
+                timeBase: 0,
+                algorithm: uri?.algorithm ?? .sha1,
+                kind: .hotp,
+                counter: counter
+            ),
+            storageStyle: .native
+        )
+    }
+
+    /// `HmacOtp-Secret` holds the key's UTF-8 text; the suffixed fields are encodings.
+    private static func decodeHmacOTPSecret(from entry: KPKEntry) -> Data {
+        if let base32 = entry.valueForAttribute(withKey: kKPKAttributeKeyHmacOTPSecretBase32), let secret = decodeBase32(base32) {
+            return secret
+        }
+        if let base64 = entry.valueForAttribute(withKey: kKPKAttributeKeyHmacOTPSecretBase64), let secret = Data(base64Encoded: base64) {
+            return secret
+        }
+        if let hex = entry.valueForAttribute(withKey: kKPKAttributeKeyHmacOTPSecretHex), let secret = decodeHex(hex) {
+            return secret
+        }
+        if let text = entry.valueForAttribute(withKey: kKPKAttributeKeyHmacOTPSecret), !text.isEmpty {
+            return Data(text.utf8)
+        }
+        return Data()
+    }
+
+    private static func parseNativeTimeOTPConfiguration(from entry: KPKEntry, isSteam: Bool) -> ResolvedOTP? {
         let secret = decodeTimeOTPSecret(from: entry)
         guard !secret.isEmpty else {
             return nil
@@ -2619,16 +2716,16 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             Int(entry.valueForAttribute(withKey: kKPKAttributeKeyTimeOTPLength) ?? "")
                 ?? digitsFromSettings
         )
-        let timeBase = TimeInterval(entry.valueForAttribute(withKey: kKPKAttributeKeyTimeOTPSeed) ?? "") ?? 0
         let algorithm = parseOTPAlgorithm(entry.valueForAttribute(withKey: kKPKAttributeKeyTimeOTPAlgorithm))
 
         return ResolvedOTP(
             configuration: VaultOTPConfiguration(
                 secret: secret,
-                digits: digits,
+                digits: isSteam ? VaultOTPURI.steamDigits : digits,
                 period: period,
-                timeBase: timeBase,
-                algorithm: algorithm
+                timeBase: 0,
+                algorithm: isSteam ? .sha1 : algorithm,
+                kind: isSteam ? .steam : .totp
             ),
             storageStyle: .native
         )
@@ -2645,6 +2742,10 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
         if let hex = entry.valueForAttribute(withKey: kKPKAttributeKeyTimeOTPSecretHex),
            let secret = decodeHex(hex) {
+            return secret
+        }
+        if let seed = entry.valueForAttribute(withKey: kKPKAttributeKeyTimeOTPSeed),
+           let secret = decodeBase32(seed) {
             return secret
         }
         if let generic = entry.valueForAttribute(withKey: kKPKAttributeKeyTimeOTPSecret) {

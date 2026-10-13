@@ -10,7 +10,9 @@ extension VaultEntryForm {
                 digits: otp.digits,
                 period: otp.period,
                 algorithm: otp.algorithm,
-                storageStyle: entry.otpStorageStyle ?? .otpAuth
+                storageStyle: entry.otpStorageStyle ?? .otpAuth,
+                kind: otp.kind,
+                counter: Int(clamping: otp.counter)
             )
         }
 
@@ -60,11 +62,14 @@ enum EntryFormValidation {
             if otp.secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return L("TOTP secret is required.")
             }
-            if otp.digits < 6 || otp.digits > 9 {
+            if otp.kind != .steam, otp.digits < 6 || otp.digits > 9 {
                 return L("TOTP digits must be between 6 and 9.")
             }
-            if otp.period < 1 {
+            if otp.kind == .totp, otp.period < 1 {
                 return L("TOTP period must be positive.")
+            }
+            if otp.kind == .hotp, otp.counter < 0 {
+                return L("The HOTP counter can't be negative.")
             }
         }
 
@@ -86,42 +91,19 @@ enum EntryFormValidation {
 }
 
 enum OTPInputParser {
-    /// Accepts either a raw secret or an `otpauth://totp/...` URI and fills the form accordingly.
+    /// Accepts either a raw secret or an `otpauth://` URI (TOTP, HOTP or Steam) and fills the form accordingly.
     static func apply(_ input: String, to form: VaultOTPForm?) -> VaultOTPForm? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return nil
         }
 
-        var result = form ?? VaultOTPForm(secret: "")
-        guard trimmed.lowercased().hasPrefix("otpauth://"),
-              let components = URLComponents(string: trimmed) else {
+        guard let parsed = VaultOTPURI.parse(trimmed, base: form) else {
+            var result = form ?? VaultOTPForm(secret: "")
             result.secret = trimmed
             return result
         }
-
-        let items = Dictionary(
-            (components.queryItems ?? []).map { ($0.name.lowercased(), $0.value ?? "") },
-            uniquingKeysWith: { first, _ in first }
-        )
-        result.secret = items["secret"] ?? ""
-        if let digits = items["digits"].flatMap(Int.init) {
-            result.digits = digits
-        }
-        if let period = items["period"].flatMap(Int.init) {
-            result.period = period
-        }
-        switch items["algorithm"]?.uppercased() {
-        case "SHA256":
-            result.algorithm = .sha256
-        case "SHA512":
-            result.algorithm = .sha512
-        case "SHA1":
-            result.algorithm = .sha1
-        default:
-            break
-        }
-        return result
+        return parsed
     }
 }
 
