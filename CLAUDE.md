@@ -6,6 +6,7 @@ Native macOS password manager written in SwiftUI (with some AppKit). It reads an
 1. Write feature code before tests
 2. Write unit tests when code is done
 3. Write several UI tests if was added new UI screens
+4. After each feature, before merge run code-reviewer subagent, wait for finish and check report
 
 ## Build and test
 
