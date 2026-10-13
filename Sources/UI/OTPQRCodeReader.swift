@@ -15,11 +15,11 @@ struct OTPQRCode: Identifiable, Equatable {
         [issuer, account].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// Parses `otpauth://totp/Issuer:account?secret=…&issuer=…`; nil for anything else.
+    /// Parses `otpauth://totp|hotp|steam/Issuer:account?secret=…&issuer=…`; nil for anything else.
     init?(uri: String) {
         guard let components = URLComponents(string: uri),
               components.scheme?.lowercased() == "otpauth",
-              components.host?.lowercased() == "totp",
+              ["totp", "hotp", "steam"].contains(components.host?.lowercased() ?? ""),
               components.queryItems?.contains(where: { $0.name.lowercased() == "secret" && !($0.value ?? "").isEmpty }) == true else {
             return nil
         }
@@ -35,8 +35,6 @@ struct OTPQRCode: Identifiable, Equatable {
 enum OTPQRCodeReader {
     enum Outcome {
         case found([OTPQRCode])
-        /// Counter-based codes; KeeMac only does TOTP.
-        case unsupportedHOTP
         /// `otpauth-migration://` export with several accounts.
         case authenticatorExport
         case nothingFound
@@ -47,9 +45,6 @@ enum OTPQRCodeReader {
         let codes = payloads.compactMap(OTPQRCode.init(uri:))
         if !codes.isEmpty {
             return .found(codes)
-        }
-        if payloads.contains(where: { $0.lowercased().hasPrefix("otpauth://hotp") }) {
-            return .unsupportedHOTP
         }
         if payloads.contains(where: { $0.lowercased().hasPrefix("otpauth-migration://") }) {
             return .authenticatorExport

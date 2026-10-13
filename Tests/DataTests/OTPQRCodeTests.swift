@@ -49,9 +49,11 @@ final class OTPQRCodeTests: XCTestCase {
         }
         XCTAssertEqual(Set(codes.map(\.uri)), [first, second])
 
-        guard case .unsupportedHOTP = OTPQRCodeReader.read(try qrImage(["otpauth://hotp/Bank?secret=JBSWY3DPEHPK3PXP&counter=1"])) else {
-            return XCTFail("HOTP should be reported")
+        let hotp = "otpauth://hotp/Bank?secret=JBSWY3DPEHPK3PXP&counter=1"
+        guard case .found(let hotpCodes) = OTPQRCodeReader.read(try qrImage([hotp])) else {
+            return XCTFail("HOTP should be found")
         }
+        XCTAssertEqual(hotpCodes.map(\.uri), [hotp])
         guard case .authenticatorExport = OTPQRCodeReader.read(try qrImage(["otpauth-migration://offline?data=CjEKCkhlbGxvId6tvu8"])) else {
             return XCTFail("Authenticator export should be reported")
         }

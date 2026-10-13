@@ -87,6 +87,7 @@ struct EntryEditorPane: View {
         _form = State(initialValue: form)
         _tagsText = State(initialValue: form.tags.joined(separator: ", "))
         _otpInput = State(initialValue: form.otp?.secret ?? "")
+        _showOTPOptions = State(initialValue: (form.otp?.kind ?? .totp) != .totp)
         _baselineModifiedAt = State(initialValue: entry.modifiedAt)
     }
 
@@ -229,6 +230,9 @@ struct EntryEditorPane: View {
                                 .kmField(focused: focusedField == .otp)
                                 .onChange(of: otpInput) { _, newValue in
                                     form.otp = OTPInputParser.apply(newValue, to: form.otp)
+                                    if let kind = form.otp?.kind, kind != .totp {
+                                        showOTPOptions = true
+                                    }
                                     if newValue.lowercased().hasPrefix("otpauth://"), let secret = form.otp?.secret {
                                         otpInput = secret
                                     }
@@ -503,26 +507,59 @@ struct EntryEditorPane: View {
     }
 
     private var otpOptions: some View {
-        HStack(spacing: 12) {
-            Picker("", selection: otpBinding(\.algorithm, default: .sha1)) {
-                Text("SHA-1").tag(VaultOTPAlgorithm.sha1)
-                Text("SHA-256").tag(VaultOTPAlgorithm.sha256)
-                Text("SHA-512").tag(VaultOTPAlgorithm.sha512)
+        let kind = form.otp?.kind ?? .totp
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                KMSegmentedControl(
+                    options: [(VaultOTPKind.totp, "TOTP"), (.hotp, "HOTP"), (.steam, "Steam")],
+                    selection: otpKindBinding,
+                    fontSize: 11,
+                    horizontalPadding: 10,
+                    identifierPrefix: "editor.otpKind"
+                )
+
+                Spacer(minLength: 0)
+
+                // HOTP is always stored in KeePass's own fields.
+                if kind != .hotp {
+                    Picker("", selection: otpBinding(\.storageStyle, default: .otpAuth)) {
+                        Text(L("otpauth URL")).tag(VaultOTPStorageStyle.otpAuth)
+                        Text(L("Native TimeOTP")).tag(VaultOTPStorageStyle.native)
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                }
             }
-            .labelsHidden()
-            .frame(width: 96)
 
-            Stepper(L("\(form.otp?.digits ?? 6) digits"), value: otpBinding(\.digits, default: 6), in: 6...9)
-            Stepper(L("\(form.otp?.period ?? 30)s"), value: otpBinding(\.period, default: 30), in: 1...120)
+            // Steam Guard codes have fixed settings.
+            if kind != .steam {
+                HStack(spacing: 12) {
+                    Picker("", selection: otpBinding(\.algorithm, default: .sha1)) {
+                        Text("SHA-1").tag(VaultOTPAlgorithm.sha1)
+                        Text("SHA-256").tag(VaultOTPAlgorithm.sha256)
+                        Text("SHA-512").tag(VaultOTPAlgorithm.sha512)
+                    }
+                    .labelsHidden()
+                    .frame(width: 96)
 
-            Spacer(minLength: 0)
-
-            Picker("", selection: otpBinding(\.storageStyle, default: .otpAuth)) {
-                Text(L("otpauth URL")).tag(VaultOTPStorageStyle.otpAuth)
-                Text(L("Native TimeOTP")).tag(VaultOTPStorageStyle.native)
+                    Stepper(L("\(form.otp?.digits ?? 6) digits"), value: otpBinding(\.digits, default: 6), in: 6...9)
+                    if kind == .hotp {
+                        HStack(spacing: 6) {
+                            Text(L("Counter"))
+                            TextField("", value: otpBinding(\.counter, default: 0), format: .number.grouping(.never))
+                                .multilineTextAlignment(.trailing)
+                                .monospacedDigit()
+                                .frame(width: 64)
+                                .accessibilityIdentifier("editor.otpCounter")
+                            Stepper("", value: otpBinding(\.counter, default: 0), in: 0...Int.max)
+                                .labelsHidden()
+                        }
+                    } else {
+                        Stepper(L("\(form.otp?.period ?? 30)s"), value: otpBinding(\.period, default: 30), in: 1...120)
+                    }
+                    Spacer(minLength: 0)
+                }
             }
-            .labelsHidden()
-            .frame(width: 130)
         }
         .font(.system(size: 12))
         .controlSize(.small)
@@ -531,6 +568,24 @@ struct EntryEditorPane: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(KM.insetFill)
+        )
+    }
+
+    /// Leaving Steam brings back the usual settings; its own are fixed.
+    private var otpKindBinding: Binding<VaultOTPKind> {
+        Binding(
+            get: { form.otp?.kind ?? .totp },
+            set: { kind in
+                guard var otp = form.otp, otp.kind != kind else {
+                    return
+                }
+                if otp.kind == .steam {
+                    otp.digits = 6
+                    otp.period = 30
+                }
+                otp.kind = kind
+                form.otp = otp
+            }
         )
     }
 
@@ -769,8 +824,6 @@ struct EntryEditorPane: View {
             } else {
                 qrCodeChoices = codes
             }
-        case .unsupportedHOTP:
-            validationMessage = L("This QR code has a counter-based (HOTP) code. KeeMac supports time-based (TOTP) codes only.")
         case .authenticatorExport:
             validationMessage = L("This is a Google Authenticator export with several accounts. Importing exports isn't supported yet.")
         case .nothingFound:
@@ -1098,6 +1151,13 @@ struct EntryEditorPane: View {
         result.title = result.title.trimmingCharacters(in: .whitespacesAndNewlines)
         result.tags = EntryFormValidation.parseTags(tagsText)
         result.otp = OTPInputParser.apply(otpInput, to: form.otp)
+        // The counter may have moved on (browser fill) while the editor was open; an untouched
+        // field mustn't take it back.
+        if var otp = result.otp, otp.kind == .hotp, otp.counter == initialForm.otp?.counter,
+           let current = entry.otp, current.kind == .hotp, current.counter > UInt64(max(otp.counter, 0)) {
+            otp.counter = Int(clamping: current.counter)
+            result.otp = otp
+        }
         result.customFields = result.customFields.map {
             VaultCustomFieldForm(id: $0.id, key: $0.key.trimmingCharacters(in: .whitespacesAndNewlines), value: $0.value, isProtected: $0.isProtected)
         }
