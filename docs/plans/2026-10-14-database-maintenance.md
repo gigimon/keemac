@@ -54,7 +54,7 @@ Stack: Swift 6.1, SwiftUI, KeePassKit (`KPKMetaData.useTrash` / `trashUuid` / `h
 [x] Localize new strings (en/ru)
 
 ## Step 3: Docs
-[ ] README and CLAUDE.md
+[x] README and CLAUDE.md
 
 ## Step 4: Tests
 [ ] Unit: settings round trip (cipher, bin, history), bin off with empty/keep, new bin group, key change (keep/replace/generate/remove, wrong current password), unused icon removal keeps used ones

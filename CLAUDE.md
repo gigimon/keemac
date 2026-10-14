@@ -50,7 +50,7 @@ swift test                       # XCTest suite (DataTests)
 
 - The design comes from the Claude Design project `KeeMac.dc.html` (plus `KeeMac Icons.dc.html`).
 - Colors and shared components live in `Sources/UI/Theme.swift`: `KM.*` light/dark tokens, `KMButtonStyle`, `KMIconButtonStyle`, `.kmField`, `.kmCard`, `LetterTile`, `StrengthMeter`, `OTPRing`, `KMSegmentedControl`. Reuse them instead of system styles.
-- Main screens: `UnlockView`, `NewDatabaseView`, `VaultBrowserView` (sidebar, list, detail), `EntryDetailPane`, `EntryEditorPane`, `DatabaseReportView`, `BrowserSheets` (new entry, group editor, confirm dialog), `SettingsView` (General, Security, About).
+- Main screens: `UnlockView`, `NewDatabaseView`, `VaultBrowserView` (sidebar, list, detail), `EntryDetailPane`, `EntryEditorPane`, `DatabaseReportView`, `BrowserSheets` (new entry, group editor, confirm dialog), `SettingsView` (General, Security, Shortcuts, Browser, Auto-Type, SSH Agent, About), `DatabaseSettingsView` (sheet of per-database cards, each saved on its own) with `ChangeMasterKeySheet`.
 - Layout variants Tahoe / Classic / Compact are stored under `KMLayout.storageKey`.
 - All user-facing text goes through `L("…")` (UI and App use the public one in `Sources/UI/Localization.swift`, Domain has its own); SwiftUI literals would look in the main bundle, which a package can't fill. Pass the result as a String: `Text(L("Unlock"))`, `Button(L("Cancel"))`. Keys are the English text (`%@` / `%lld` for interpolations); translations live in `Resources/Localization/ru.lproj/Localizable.strings`, plurals in `Localizable.stringsdict` (en and ru). Words with several meanings use `L("stable.key", default: "English")`. `LocalizationTests` checks specifiers and plural forms.
 - The main window uses a full-size content view with a transparent title bar; `WindowDragRegion` makes custom areas draggable.
@@ -62,6 +62,13 @@ swift test                       # XCTest suite (DataTests)
 - Every mutation saves immediately: a `.bak` copy is written next to the database, then the file is replaced atomically.
 - Usage count and last access are updated in memory when a field is copied or a URL is opened, and written on lock through `savePendingChanges()`.
 - Favorites and recently viewed entries are app-local (UserDefaults), not stored in the database.
+
+## Database maintenance
+
+- Plan: `docs/plans/2026-10-14-database-maintenance.md`. `VaultDatabaseManaging` covers settings (incl. cipher), `maintenanceStatus()`, `updateRecycleBin`, `updateHistoryLimits`, `removeUnusedCustomIcons` and `changeMasterKey(currentPassword:currentKeyFileURL:newPassword:keyFile:)`, which checks the current key first and writes a generated key file only when the change goes ahead.
+- KeePassKit marks the bin by `trashUuid` even when `useTrash` is off, so turning the bin off also clears `trashUuid` (the group then shows as a normal one). `VaultSummary.usesRecycleBin` switches delete prompts to "Delete permanently".
+- History "unlimited" is written as `Int32.max`: KeePass/KeePassXC read -1 as unlimited, KeePassKit reads it as "history off". Removing icons or emptying the bin while turning it off clears the undo stack.
+- UI testing: `KEEMAC_UI_TEST_KEY_FILE` replaces the open/save panels of the Change Master Key sheet.
 
 ## Undo, import and export
 

@@ -9,6 +9,7 @@ A native macOS password manager for KeePass (`.kdbx`) databases, built with Swif
 ### Databases
 - Open local `.kdbx` files with a master password, a key file or both.
 - Create new databases: name and location, master password and/or key file (choose or generate), encryption presets or a custom format, cipher (AES-256, ChaCha20, Twofish), KDF (Argon2id, Argon2d, AES-KDF) calibrated to the unlock time you pick.
+- Database Settings (⇧⌘,): name and description, templates group, cipher and KDF with the estimated unlock time, recycle bin on/off and its group (turning it off asks whether to empty it or keep it as a group), history limits per entry (versions and size, for new changes), changing the master key (current password, new password and/or a chosen, generated or removed key file), removing unused custom icons, additional databases.
 - Recent databases are remembered (security-scoped bookmarks); Touch ID unlock can be enabled per database. Removing a database from the recent list also deletes its Touch ID password and KeeMac's copy of its last save.
 - The unlock screen shows the format, KDF and cipher read from the KDBX header.
 
