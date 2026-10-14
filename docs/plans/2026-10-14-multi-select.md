@@ -147,7 +147,7 @@ Closes the tags popover or the move sheet first, then clears the selection.
 
 ## Step 5: Localization and docs
 - [x] ru strings, plurals in `Localizable.stringsdict` ("%lld entries selected", "Move %lld entries…")
-- [ ] README features, CLAUDE.md section
+- [x] README features, CLAUDE.md section
 
 ## Step 6: Tests
 - [ ] Unit:

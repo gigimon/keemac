@@ -78,6 +78,12 @@ swift test                       # XCTest suite (DataTests)
 - `HardwareKey` module: `YubiKeyDevice` speaks the OTP application's feature-report protocol over a `YubiKeyTransport` (tested against a simulated key), `YubiKeyHIDChallenger` finds keys with IOKit (FIDO interface first, like ykpers, to avoid Input Monitoring). The file doesn't record the key; `AppSettingsStore` remembers it per database, plus the "Touch ID without the hardware key" option, whose response the biometric store keeps next to the password.
 - UI: `HardwareKeyPicker` (unlock, New Database, Change Master Key), `HardwareKeyPrompt.swift` (`PromptingHardwareKeyChallenger` shows the floating touch panel with Try Again / Cancel). UI testing: `KEEMAC_UI_TEST_HARDWARE_KEY=<hex secret>` (YubiKey 12345678, slot 2), `KEEMAC_UI_TEST_HARDWARE_KEY_TOUCH=1` / `timeout`; without it no keys are found.
 
+## Multi-select
+
+- Plan: `docs/plans/2026-10-14-multi-select.md`. `EntrySelection` (focus, anchor, ids) holds the entry list's selection; `selectedEntryID` in `VaultBrowserView` is its focus (setting it selects one entry). A selection never spans databases, is trimmed to the visible list in `ensureValidSelection`, and collapses when the editor opens.
+- Bulk actions: `VaultEditing.moveEntries` / `deleteEntries` / `restoreEntries` / `updateTags` (one save, one undo step each; missing IDs are skipped), routed by `AppViewModel.editEntries` to the owning loader; favorites stay main-database only. The view gets them through `EntryBulkActions`.
+- UI: `EntrySelectionPanel`, `TagSelectionPopover` (`BulkTagEditor` tri-state logic), `MoveToGroupSheet` in `EntrySelectionViews.swift`; drag payload `keemac-entry:<id>,<id>…`. Identifiers `selection.*`, `tagPicker.*`, `movePicker.*`.
+
 ## Undo, import and export
 
 - KeePassKit records the inverse of tree changes in the `NSUndoManager` it gets from the tree delegate; `KMUndoStack` (`Sources/UndoSupport`, Objective-C because Swift marks `UndoManager` main-actor only) owns it and keeps our own action names. Registration is off by default: wrap every user-visible mutation in `beginUndo()` / `defer { endUndo(.action) }`. Merges run with a throwaway manager (`withoutUndo`), and merging someone else's changes clears the stack.
