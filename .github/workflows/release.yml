@@ -16,6 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
   RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
 jobs:
@@ -44,7 +45,7 @@ jobs:
 
   unit-tests:
     needs: version
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     permissions:
       contents: read
@@ -60,7 +61,7 @@ jobs:
 
   ui-tests:
     needs: version
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     permissions:
       contents: read
@@ -93,7 +94,7 @@ jobs:
 
   publish-release:
     needs: [version, unit-tests, ui-tests]
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     permissions:
       contents: write

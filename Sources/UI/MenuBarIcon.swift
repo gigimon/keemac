@@ -3,8 +3,8 @@ import AppKit
 /// Menu bar status item glyphs drawn on an 18 × 18 pt grid as template images,
 /// so macOS tints them for light, dark and highlighted menu bars.
 public enum MenuBarIcon {
-    public static let locked: NSImage = makeImage(accessibilityDescription: L("KeeMac, locked"), draw: drawLocked)
-    public static let unlocked: NSImage = makeImage(accessibilityDescription: L("KeeMac, unlocked"), draw: drawUnlocked)
+    @MainActor public static let locked: NSImage = makeImage(accessibilityDescription: L("KeeMac, locked"), draw: drawLocked)
+    @MainActor public static let unlocked: NSImage = makeImage(accessibilityDescription: L("KeeMac, unlocked"), draw: drawUnlocked)
 
     private static func makeImage(accessibilityDescription: String, draw: @escaping () -> Void) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in

@@ -162,6 +162,7 @@ struct CompletingTextField: NSViewRepresentable {
         )
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: CompletingTextField
         private(set) var isEditing = false

@@ -293,7 +293,12 @@ public struct VaultBrowserView: View {
         _expandedGroupPaths = State(initialValue: initialExpandedGroupPaths)
     }
 
+    // Split in three so older compilers type-check it in time.
     public var body: some View {
+        withObservers(withSheets(content))
+    }
+
+    private var content: some View {
         ZStack {
             HStack(spacing: 0) {
                 sidebar
@@ -333,6 +338,10 @@ public struct VaultBrowserView: View {
         .background(KM.windowBackground)
         .ignoresSafeArea(.container, edges: .top)
         .tint(KM.accent)
+    }
+
+    private func withSheets(_ content: some View) -> some View {
+        content
         .sheet(item: $newEntryRequest) { request in
             let key = request.databaseKey
             EntryTypeSheet(
@@ -404,6 +413,10 @@ public struct VaultBrowserView: View {
         } message: {
             Text(operationErrorMessage ?? L("Unknown error"))
         }
+    }
+
+    private func withObservers(_ content: some View) -> some View {
+        content
         .onAppear {
             ensureValidSelection()
         }
