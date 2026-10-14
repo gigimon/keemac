@@ -332,7 +332,7 @@ struct ChangeMasterKeySheet: View {
                     cornerRadius: 8,
                     alwaysExpanded: true,
                     isDisabled: isSaving,
-                    identifierPrefix: "changeKey.hardwareKey",
+                    identifierPrefix: "changeKey.hardwareKeyPicker",
                     onSelect: { chosenHardwareKey = $0 },
                     onRefresh: { Task { await viewModel.refreshHardwareKeys() } }
                 )

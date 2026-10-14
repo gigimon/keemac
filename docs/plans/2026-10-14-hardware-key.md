@@ -48,7 +48,7 @@ Review notes:
 - [x] Step 4: AppViewModel — recent databases remember the hardware key, unlock flow, touch panel state, Touch ID option (store/refresh/delete response), Quick Access / SSH agent unlock.
 - [x] Step 5: UI — unlock key picker, New Database, Change Master Key sheet, Master Key card, touch panel; localization (ru).
 - [x] Step 6: UI testing hooks (emulator).
-- [ ] Step 7: Unit tests (formula vs. KeePassXC, emulator round trips, seed pinning, merge with new seed, Touch ID option) and UI tests.
+- [x] Step 7: Unit tests (formula vs. KeePassXC, emulator round trips, seed pinning, merge with new seed, Touch ID option) and UI tests.
 - [ ] Step 8: README / CLAUDE.md, code review.
 
 ## Testing without hardware
