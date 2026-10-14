@@ -1,5 +1,5 @@
 diff --git a/KeePassKit/Cipher/KPKTwofishCipher.m b/KeePassKit/Cipher/KPKTwofishCipher.m
-index aec663d..2f24fb6 100644
+index aec663d..b423122 100644
 --- a/KeePassKit/Cipher/KPKTwofishCipher.m
 +++ b/KeePassKit/Cipher/KPKTwofishCipher.m
 @@ -63,11 +63,12 @@ - (NSData *)encryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullabl
@@ -18,7 +18,7 @@ index aec663d..2f24fb6 100644
  }
  
  - (NSData *)decryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullable *)error {
-@@ -75,11 +76,12 @@ - (NSData *)decryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullabl
+@@ -75,11 +76,17 @@ - (NSData *)decryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullabl
      return nil;
    }
    NSAssert(0 == (data.length % 16), @"Invalid data size");
@@ -27,6 +27,11 @@ index aec663d..2f24fb6 100644
    uint64_t decrpyted_length = data.length;
 -  Twofish_decrypt(&_context, (Twofish_Byte *)data.bytes, data.length, decrypted, &decrpyted_length);
 +  Twofish_decrypt(&_context, (Twofish_Byte *)data.bytes, data.length, decrypted.mutableBytes, &decrpyted_length);
++  if(decrpyted_length == 0 && data.length > 0 && ((const uint8_t *)decrypted.bytes)[data.length - 1] != 16) {
++    /* invalid padding (an empty plaintext is a whole block of 16s): the key is wrong */
++    KPKCreateError(error, KPKErrorDecryptionFailed);
++    return nil;
++  }
 +  decrypted.length = (NSUInteger)decrpyted_length;
    
 -  return [NSData dataWithBytes:decrypted length:(NSUInteger)decrpyted_length];

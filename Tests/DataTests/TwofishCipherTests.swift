@@ -37,12 +37,16 @@ final class TwofishCipherTests: XCTestCase {
         wait(for: [done], timeout: 30)
     }
 
-    func testWrongKeyDoesNotProduceAHugeLength() throws {
+    func testWrongKeyFailsOrStaysInBounds() throws {
         let encrypted = try KPKTwofishCipher().encryptData(Data(repeating: 1, count: 64), withKey: key, initializationVector: iv)
-        let wrongKey = Data(repeating: 0x55, count: 32)
-        for _ in 0..<20 {
-            let decrypted = try? KPKTwofishCipher().decryptData(encrypted, withKey: wrongKey, initializationVector: iv)
-            XCTAssertLessThanOrEqual(decrypted?.count ?? 0, encrypted.count)
+        for seed in 0..<20 {
+            let wrongKey = Data((0..<32).map { UInt8(truncatingIfNeeded: $0 &* 13 &+ seed &+ 1) })
+            do {
+                let decrypted = try KPKTwofishCipher().decryptData(encrypted, withKey: wrongKey, initializationVector: iv)
+                XCTAssertLessThanOrEqual(decrypted.count, encrypted.count, "padding that happens to be valid")
+            } catch {
+                XCTAssertEqual((error as NSError).code, Int(KPKErrorCode.decryptionFailed.rawValue), "invalid padding is an error, not empty data")
+            }
         }
     }
 }
