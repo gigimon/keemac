@@ -42,8 +42,8 @@ Review notes:
 ## Plan
 
 - [x] Step 0: Design prompt and review of the mockups.
-- [ ] Step 1: KeePassKit patch — challenge-response component in `KPKCompositeKey` (KDBX 4 formula), option to keep the KDF seed on save; patch file in `scripts/` applied by `build_vendor_frameworks.sh`, rebuilt xcframework.
-- [ ] Step 2: Domain + Data — `VaultHardwareKey` (serial, slot), `HardwareKeyChallenging` protocol, software emulator; loader: open/create/changeMasterKey with a hardware key, seed pinning and cached response, re-challenge on merge with a new seed; KDBX 3.1 handling.
+- [x] Step 1: KeePassKit patch — challenge-response component in `KPKCompositeKey` (KDBX 4 formula), option to keep the KDF seed on save; patch file in `scripts/` applied by `build_vendor_frameworks.sh`, rebuilt xcframework.
+- [x] Step 2: Domain + Data — `VaultHardwareKey` (serial, slot), `HardwareKeyChallenging` protocol, software emulator; loader: open/create/changeMasterKey with a hardware key, seed pinning and cached response, re-challenge on merge with a new seed; KDBX 3.1 handling.
 - [ ] Step 3: YubiKey HID driver (IOKit): enumerate devices, read serial and slot configuration, challenge with touch wait, cancel, timeouts.
 - [ ] Step 4: AppViewModel — recent databases remember the hardware key, unlock flow, touch panel state, Touch ID option (store/refresh/delete response), Quick Access / SSH agent unlock.
 - [ ] Step 5: UI — unlock key picker, New Database, Change Master Key sheet, Master Key card, touch panel; localization (ru).

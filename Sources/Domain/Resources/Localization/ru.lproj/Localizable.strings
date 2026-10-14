@@ -14,3 +14,11 @@
 "The current password is wrong." = "Текущий пароль неверен.";
 "Set a password before removing the key file." = "Задайте пароль, прежде чем убрать ключевой файл.";
 "Choose a different file than the current key file." = "Выберите другой файл, а не текущий ключевой файл.";
+"%@ (%@) · Slot %lld" = "%1$@ (%2$@) · слот %3$lld";
+"YubiKey %@ · Slot %lld" = "YubiKey %1$@ · слот %2$lld";
+"Connect YubiKey %@ to unlock this database." = "Подключите YubiKey %@, чтобы разблокировать эту базу.";
+"Timed out waiting for touch." = "Не дождались касания.";
+"Slot %lld isn’t set up for challenge-response." = "Слот %lld не настроен для challenge-response.";
+"Cancelled waiting for the hardware key." = "Ожидание аппаратного ключа отменено.";
+"The hardware key didn’t respond: %@" = "Аппаратный ключ не ответил: %@";
+"Hardware keys are supported for KDBX 4 databases only. Open it in KeePassXC and save it as KDBX 4." = "Аппаратные ключи поддерживаются только для баз KDBX 4. Откройте базу в KeePassXC и сохраните её как KDBX 4.";

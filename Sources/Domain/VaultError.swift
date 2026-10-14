@@ -13,6 +13,18 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
     case emptyMasterKey
     /// Generating a new key file over the one the database opens with now.
     case keyFileInUse
+    /// The remembered hardware key isn't connected.
+    case hardwareKeyNotFound(serial: UInt32)
+    /// The slot needs a touch and none came in time.
+    case hardwareKeyTimedOut
+    /// The slot isn't programmed for HMAC-SHA1 challenge-response.
+    case hardwareKeySlotNotConfigured(slot: Int)
+    /// The user cancelled waiting for the hardware key.
+    case hardwareKeyCancelled
+    /// Talking to the hardware key failed.
+    case hardwareKeyFailed(details: String)
+    /// KeePassXC's KDBX 3.1 challenge-response scheme isn't supported.
+    case hardwareKeyUnsupportedFormat
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +46,18 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
             return L("Set a password before removing the key file.")
         case .keyFileInUse:
             return L("Choose a different file than the current key file.")
+        case .hardwareKeyNotFound(let serial):
+            return L("Connect YubiKey \(String(serial)) to unlock this database.")
+        case .hardwareKeyTimedOut:
+            return L("Timed out waiting for touch.")
+        case .hardwareKeySlotNotConfigured(let slot):
+            return L("Slot \(slot) isn’t set up for challenge-response.")
+        case .hardwareKeyCancelled:
+            return L("Cancelled waiting for the hardware key.")
+        case .hardwareKeyFailed(let details):
+            return L("The hardware key didn’t respond: \(details)")
+        case .hardwareKeyUnsupportedFormat:
+            return L("Hardware keys are supported for KDBX 4 databases only. Open it in KeePassXC and save it as KDBX 4.")
         }
     }
 }

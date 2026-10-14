@@ -5,7 +5,7 @@ import Foundation
 import KeePassKit
 import UndoSupport
 
-public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionControlling, VaultDatabaseManaging, VaultCreating, VaultSynchronizing, VaultBrowserAccessing, VaultUndoing, VaultTransferring, VaultTransferringBetweenDatabases, VaultAutoTyping {
+public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionControlling, VaultDatabaseManaging, VaultCreating, VaultSynchronizing, VaultBrowserAccessing, VaultUndoing, VaultTransferring, VaultTransferringBetweenDatabases, VaultAutoTyping, VaultHardwareKeyManaging {
     private final class TreeEditingDelegate: NSObject, KPKTreeDelegate {
         let undoStack: KMUndoStack
         /// Set while merging: KeePassKit gets a throwaway manager, so merges never touch the user's undo steps.
@@ -27,6 +27,76 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             mergeStack = KMUndoStack.discarding()
             defer { mergeStack = nil }
             return try body()
+        }
+    }
+
+    /// Answers KeePassKit's challenges for one hardware key. The KDF seed is the challenge and stays the same
+    /// between saves (`keepsKeyDerivationSeed`), so the device is asked once per seed.
+    private final class HardwareKeyResponder: @unchecked Sendable {
+        let key: VaultHardwareKey
+        private let device: any HardwareKeyChallenging
+        private let lock = NSLock()
+        private var responses: [Data: Data] = [:]
+        private var lastError: Error?
+
+        init(key: VaultHardwareKey, device: any HardwareKeyChallenging, knownResponse: VaultHardwareKeyResponse?) {
+            self.key = key
+            self.device = device
+            if let knownResponse {
+                responses[knownResponse.challenge] = knownResponse.response
+            }
+        }
+
+        func response(for challenge: Data) throws -> Data {
+            if let known = lock.withLock({ responses[challenge] }) {
+                return known
+            }
+            do {
+                let response = try device.challengeResponse(challenge, key: key, isCancelled: { false })
+                lock.withLock { responses[challenge] = response }
+                return response
+            } catch {
+                lock.withLock { lastError = error }
+                throw error
+            }
+        }
+
+        func knownResponse(for challenge: Data) -> Data? {
+            lock.withLock { responses[challenge] }
+        }
+
+        /// The device error behind KeePassKit's failure, if there was one.
+        func takeError() -> Error? {
+            lock.withLock {
+                defer { lastError = nil }
+                return lastError
+            }
+        }
+    }
+
+    /// A composite key with a hardware key part.
+    private final class HardwareCompositeKey: KPKCompositeKey {
+        let responder: HardwareKeyResponder
+
+        init(keys: [KPKKey], responder: HardwareKeyResponder) {
+            self.responder = responder
+            super.init(keys: keys)
+            keepsKeyDerivationSeed = true
+            challengeResponseHandler = { challenge, errorPointer in
+                guard let challenge = challenge as Data? else {
+                    return nil
+                }
+                do {
+                    return try responder.response(for: challenge)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+            }
+        }
+
+        required init?(coder: NSCoder) {
+            nil
         }
     }
 
@@ -78,8 +148,12 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return base.appendingPathComponent("KeeMac/Snapshots", isDirectory: true)
     }
 
-    public init(snapshotDirectory: URL? = nil) {
+    /// Hardware keys (YubiKey) for master keys that have one; `nil` when this loader never uses them.
+    private let hardwareKeys: (any HardwareKeyChallenging)?
+
+    public init(snapshotDirectory: URL? = nil, hardwareKeys: (any HardwareKeyChallenging)? = nil) {
         self.snapshotDirectory = snapshotDirectory
+        self.hardwareKeys = hardwareKeys
     }
 
     public func clearLoadedSession() async {
@@ -352,6 +426,16 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     }
 
     public func loadVault(from fileURL: URL, masterPassword: String, keyFileURL: URL?) async throws -> LoadedVault {
+        try await loadVault(from: fileURL, masterPassword: masterPassword, keyFileURL: keyFileURL, hardwareKey: nil, knownResponse: nil)
+    }
+
+    public func loadVault(
+        from fileURL: URL,
+        masterPassword: String,
+        keyFileURL: URL?,
+        hardwareKey: VaultHardwareKey?,
+        knownResponse: VaultHardwareKeyResponse?
+    ) async throws -> LoadedVault {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw VaultError.fileReadFailure(path: fileURL.path)
         }
@@ -362,11 +446,16 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             }
         }
 
-        guard !masterPassword.isEmpty || keyFileURL != nil else {
+        guard !masterPassword.isEmpty || keyFileURL != nil || hardwareKey != nil else {
             throw VaultError.invalidPassword
         }
 
-        let compositeKey = try makeCompositeKey(masterPassword: masterPassword, keyFileURL: keyFileURL)
+        let compositeKey = try makeCompositeKey(
+            masterPassword: masterPassword,
+            keyFileURL: keyFileURL,
+            hardwareKey: hardwareKey,
+            knownResponse: knownResponse
+        )
 
         let (tree, fingerprint, diskData) = try readTree(at: fileURL, key: compositeKey)
         undoStack.removeAllActions()
@@ -471,7 +560,11 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.parseFailure(details: "A file named “\(fileURL.lastPathComponent)” already exists in this folder.")
         }
 
-        let compositeKey = try makeCompositeKey(masterPassword: options.masterPassword, keyFileURL: options.keyFileURL)
+        let compositeKey = try makeCompositeKey(
+            masterPassword: options.masterPassword,
+            keyFileURL: options.keyFileURL,
+            hardwareKey: options.hardwareKey
+        )
         let editingDelegate = TreeEditingDelegate(undoStack: undoStack)
         let tree = KPKTree(templateContents: ())
         tree.delegate = editingDelegate
@@ -602,7 +695,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         do {
             encryptedData = try session.tree.encrypt(with: session.key, format: session.format)
         } catch {
-            throw Self.mapKeePassError(error as NSError)
+            throw Self.mapKeyError(error, key: session.key)
         }
 
         do {
@@ -952,16 +1045,42 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         newPassword: String?,
         keyFile: VaultKeyFileChange
     ) async throws -> URL? {
+        try await changeMasterKey(
+            currentPassword: currentPassword,
+            currentKeyFileURL: currentKeyFileURL,
+            newPassword: newPassword,
+            keyFile: keyFile,
+            hardwareKey: .keep
+        )
+    }
+
+    public func changeMasterKey(
+        currentPassword: String,
+        currentKeyFileURL: URL?,
+        newPassword: String?,
+        keyFile: VaultKeyFileChange,
+        hardwareKey: VaultHardwareKeyChange
+    ) async throws -> URL? {
         guard let currentSession = session else {
             throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
         }
-        guard !currentPassword.isEmpty || currentKeyFileURL != nil else {
+        let currentResponder = (currentSession.key as? HardwareCompositeKey)?.responder
+        guard !currentPassword.isEmpty || currentKeyFileURL != nil || currentResponder != nil else {
             throw VaultError.wrongCurrentPassword
         }
         // An unreadable current key file is its own error, not a wrong password.
-        let currentKey = try makeCompositeKey(masterPassword: currentPassword, keyFileURL: currentKeyFileURL)
+        let currentKey = try makeCompositeKey(masterPassword: currentPassword, keyFileURL: currentKeyFileURL, responder: currentResponder)
         guard currentSession.key.isEqual(to: currentKey) else {
             throw VaultError.wrongCurrentPassword
+        }
+        let hardware: HardwareMasterKeyPart
+        switch hardwareKey {
+        case .keep:
+            hardware = currentResponder.map { .keep($0) } ?? .none
+        case .use(let key):
+            hardware = .new(key)
+        case .remove:
+            hardware = .none
         }
 
         let password = newPassword.flatMap { $0.isEmpty ? nil : $0 } ?? currentPassword
@@ -974,12 +1093,12 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         case .remove:
             keyFileURL = nil
         }
-        guard !password.isEmpty || keyFileURL != nil else {
+        guard !password.isEmpty || keyFileURL != nil || hardware.isPresent else {
             throw VaultError.emptyMasterKey
         }
 
         guard case .generate(let destination) = keyFile else {
-            try await changeMasterKey(newPassword: password, keyFileURL: keyFileURL)
+            try applyMasterKey(password: password, keyFileURL: keyFileURL, hardware: hardware)
             return keyFileURL
         }
         // Overwriting the current key file would leave the `.bak` copy without its key.
@@ -992,7 +1111,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
         try Self.generateKeyFile(at: temporary)
         do {
-            try await changeMasterKey(newPassword: password, keyFileURL: temporary)
+            try applyMasterKey(password: password, keyFileURL: temporary, hardware: hardware)
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error
@@ -1022,7 +1141,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             unusedIconCount: unused.count,
             unusedIconBytes: unused.reduce(0) { $0 + ($1.encodedString?.count ?? 0) * 3 / 4 },
             masterKeyChangedAt: Self.knownDate(meta.masterKeyChanged),
-            hasPassword: currentSession.key.hasKey(of: KPKPasswordKey.self)
+            hasPassword: currentSession.key.hasKey(of: KPKPasswordKey.self),
+            hardwareKey: (currentSession.key as? HardwareCompositeKey)?.responder.key
         )
     }
 
@@ -1153,9 +1273,67 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         guard let currentSession = session else {
             throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
         }
+        let hardware = ((currentSession.key as? HardwareCompositeKey)?.responder).map { HardwareMasterKeyPart.keep($0) } ?? .none
+        try applyMasterKey(password: newPassword, keyFileURL: keyFileURL, hardware: hardware)
+    }
 
-        let newKey = try makeCompositeKey(masterPassword: newPassword, keyFileURL: keyFileURL)
-        currentSession.tree.metaData?.masterKeyChanged = Date()
+    private enum HardwareMasterKeyPart {
+        case none
+        /// The same key: its answers stay valid because the KDF seed doesn't change.
+        case keep(HardwareKeyResponder)
+        case new(VaultHardwareKey)
+
+        var isPresent: Bool {
+            if case .none = self {
+                return false
+            }
+            return true
+        }
+    }
+
+    /// The response for the seed the file is written with, so Touch ID can unlock without the hardware key.
+    public func hardwareKeyResponse() async -> VaultHardwareKeyResponse? {
+        guard let currentSession = session,
+              let responder = (currentSession.key as? HardwareCompositeKey)?.responder,
+              let challenge = Self.keyDerivationSeed(of: currentSession.tree),
+              let response = responder.knownResponse(for: challenge) else {
+            return nil
+        }
+        return VaultHardwareKeyResponse(challenge: challenge, response: response)
+    }
+
+    /// The hardware key the open database's master key includes.
+    public func currentHardwareKey() async -> VaultHardwareKey? {
+        ((session?.key as? HardwareCompositeKey)?.responder.key)
+    }
+
+    private static func keyDerivationSeed(of tree: KPKTree) -> Data? {
+        let parameters = tree.metaData?.keyDerivationParameters
+        return (parameters?[KPKArgon2SaltParameter] ?? parameters?[KPKAESSeedOption]) as? Data
+    }
+
+    private func applyMasterKey(password: String, keyFileURL: URL?, hardware: HardwareMasterKeyPart) throws {
+        guard let currentSession = session, let meta = currentSession.tree.metaData else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+
+        let newKey: KPKCompositeKey
+        switch hardware {
+        case .none:
+            newKey = try makeCompositeKey(masterPassword: password, keyFileURL: keyFileURL)
+        case .keep(let responder):
+            newKey = try makeCompositeKey(masterPassword: password, keyFileURL: keyFileURL, responder: responder)
+        case .new(let key):
+            newKey = try makeCompositeKey(masterPassword: password, keyFileURL: keyFileURL, hardwareKey: key)
+        }
+        let previousParameters = meta.keyDerivationParameters
+        let previousChange = meta.masterKeyChanged
+        // A new hardware key answers a new seed; keeping it keeps the seed (and its cached answer).
+        if case .new = hardware, let parameters = previousParameters, let derivation = KPKKeyDerivation(parameters: parameters) as KPKKeyDerivation? {
+            derivation.randomize()
+            meta.keyDerivationParameters = derivation.parameters
+        }
+        meta.masterKeyChanged = Date()
 
         let updatedSession = Session(
             fileURL: currentSession.fileURL,
@@ -1171,6 +1349,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         } catch {
             // Roll back to the previous key so the in-memory session stays usable.
             session = currentSession
+            meta.keyDerivationParameters = previousParameters
+            meta.masterKeyChanged = previousChange
             throw error
         }
     }
@@ -2163,7 +2343,13 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
     }
 
-    private func makeCompositeKey(masterPassword: String, keyFileURL: URL?) throws -> KPKCompositeKey {
+    private func makeCompositeKey(
+        masterPassword: String,
+        keyFileURL: URL?,
+        hardwareKey: VaultHardwareKey? = nil,
+        knownResponse: VaultHardwareKeyResponse? = nil,
+        responder existingResponder: HardwareKeyResponder? = nil
+    ) throws -> KPKCompositeKey {
         var keyParts: [KPKKey] = []
 
         if !masterPassword.isEmpty {
@@ -2185,6 +2371,17 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                 throw VaultError.invalidPassword
             }
             keyParts.append(fileKey)
+        }
+
+        if let existingResponder {
+            return HardwareCompositeKey(keys: keyParts, responder: existingResponder)
+        }
+        if let hardwareKey {
+            guard let hardwareKeys else {
+                throw VaultError.hardwareKeyFailed(details: "Hardware keys are not available.")
+            }
+            let responder = HardwareKeyResponder(key: hardwareKey, device: hardwareKeys, knownResponse: knownResponse)
+            return HardwareCompositeKey(keys: keyParts, responder: responder)
         }
 
         guard !keyParts.isEmpty else {
@@ -2213,7 +2410,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             let tree = try KPKTree(data: data, key: key)
             return (tree, Self.fingerprint(of: data), data)
         } catch {
-            throw Self.mapKeePassError(error as NSError)
+            throw Self.mapKeyError(error, key: key)
         }
     }
 
@@ -2245,7 +2442,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         do {
             encryptedData = try session.tree.encrypt(with: session.key, format: session.format)
         } catch {
-            throw Self.mapKeePassError(error as NSError)
+            throw Self.mapKeyError(error, key: session.key)
         }
 
         let directory = session.fileURL.deletingLastPathComponent()
@@ -3003,6 +3200,20 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             return KPKDatabaseFormat(rawValue: 2) ?? normalizedMinimum
         }
         return normalizedMinimum
+    }
+
+    /// Device errors (not connected, no touch) win over KeePassKit's generic "key derivation failed".
+    private static func mapKeyError(_ error: Error, key: KPKCompositeKey) -> Error {
+        if let hardware = key as? HardwareCompositeKey {
+            if let deviceError = hardware.responder.takeError() {
+                return deviceError
+            }
+            let nsError = error as NSError
+            if nsError.domain == KPKErrorDomain, nsError.code == Int(KPKErrorCode.unsupportedDatabaseVersion.rawValue) {
+                return VaultError.hardwareKeyUnsupportedFormat
+            }
+        }
+        return mapKeePassError(error as NSError)
     }
 
     static func mapKeePassError(_ error: NSError?) -> VaultError {

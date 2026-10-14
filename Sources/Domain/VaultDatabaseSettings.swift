@@ -98,6 +98,8 @@ public struct VaultMaintenanceStatus: Sendable, Equatable {
     public var masterKeyChangedAt: Date?
     /// The master key includes a password (it may be a key file alone).
     public var hasPassword: Bool
+    /// The hardware key part of the master key, if any.
+    public var hardwareKey: VaultHardwareKey?
 
     public init(
         usesRecycleBin: Bool = true,
@@ -107,7 +109,8 @@ public struct VaultMaintenanceStatus: Sendable, Equatable {
         unusedIconCount: Int = 0,
         unusedIconBytes: Int = 0,
         masterKeyChangedAt: Date? = nil,
-        hasPassword: Bool = true
+        hasPassword: Bool = true,
+        hardwareKey: VaultHardwareKey? = nil
     ) {
         self.usesRecycleBin = usesRecycleBin
         self.recycleBinPath = recycleBinPath
@@ -117,6 +120,7 @@ public struct VaultMaintenanceStatus: Sendable, Equatable {
         self.unusedIconBytes = unusedIconBytes
         self.masterKeyChangedAt = masterKeyChangedAt
         self.hasPassword = hasPassword
+        self.hardwareKey = hardwareKey
     }
 }
 
@@ -153,6 +157,7 @@ public struct VaultCreationOptions: Sendable, Equatable {
     public var details: String
     public var masterPassword: String
     public var keyFileURL: URL?
+    public var hardwareKey: VaultHardwareKey?
     public var useTrash: Bool
     public var historyMaxItems: Int
     public var cipher: VaultCipher
@@ -165,6 +170,7 @@ public struct VaultCreationOptions: Sendable, Equatable {
         details: String = "",
         masterPassword: String,
         keyFileURL: URL? = nil,
+        hardwareKey: VaultHardwareKey? = nil,
         useTrash: Bool = true,
         historyMaxItems: Int = 10,
         cipher: VaultCipher = .chacha20,
@@ -176,6 +182,7 @@ public struct VaultCreationOptions: Sendable, Equatable {
         self.details = details
         self.masterPassword = masterPassword
         self.keyFileURL = keyFileURL
+        self.hardwareKey = hardwareKey
         self.useTrash = useTrash
         self.historyMaxItems = historyMaxItems
         self.cipher = cipher

@@ -95,6 +95,28 @@ public protocol VaultDatabaseManaging: Sendable {
     func removeUnusedCustomIcons() async throws -> LoadedVault
 }
 
+/// Master keys with a hardware key part (YubiKey HMAC-SHA1 challenge-response, KeePassXC's KDBX 4 scheme).
+public protocol VaultHardwareKeyManaging: Sendable {
+    /// `knownResponse` (stored for Touch ID) answers the challenge when it still matches the file's KDF seed.
+    func loadVault(
+        from fileURL: URL,
+        masterPassword: String,
+        keyFileURL: URL?,
+        hardwareKey: VaultHardwareKey?,
+        knownResponse: VaultHardwareKeyResponse?
+    ) async throws -> LoadedVault
+    func changeMasterKey(
+        currentPassword: String,
+        currentKeyFileURL: URL?,
+        newPassword: String?,
+        keyFile: VaultKeyFileChange,
+        hardwareKey: VaultHardwareKeyChange
+    ) async throws -> URL?
+    /// The answer for the seed the file is written with; nil without a hardware key.
+    func hardwareKeyResponse() async -> VaultHardwareKeyResponse?
+    func currentHardwareKey() async -> VaultHardwareKey?
+}
+
 /// Data KeePassXC-Browser needs, stored the way KeePassXC stores it.
 public protocol VaultBrowserAccessing: Sendable {
     /// Hex SHA-256 of the root group UUID (32 lowercase hex digits), KeePassXC's database hash.
