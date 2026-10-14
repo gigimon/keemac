@@ -1,0 +1,57 @@
+diff --git a/KeePassKit/Core/KPKMetaData.m b/KeePassKit/Core/KPKMetaData.m
+index 7f8b781..c1df410 100644
+--- a/KeePassKit/Core/KPKMetaData.m
++++ b/KeePassKit/Core/KPKMetaData.m
+@@ -228,8 +228,10 @@ - (void)setCipherUUID:(NSUUID *)cipherUUID {
+ }
+ 
+ - (void)setKeyDerivationParameters:(NSDictionary *)keyDerivationParameters {
+-  _keyDerivationParameters = [keyDerivationParameters copy];
+-  KPK_METADATA_UPDATE_DATE(self.settingsChanged)
++  if(![_keyDerivationParameters isEqualToDictionary:keyDerivationParameters]) {
++    _keyDerivationParameters = [keyDerivationParameters copy];
++    KPK_METADATA_UPDATE_DATE(self.settingsChanged)
++  }
+ }
+ 
+ - (void)setCompressionAlgorithm:(uint32_t)compressionAlgorithm {
+@@ -267,8 +269,10 @@ - (void)setDatabaseDescription:(NSString *)databaseDescription {
+ }
+ 
+ - (void)setMaintenanceHistoryDays:(NSInteger)maintenanceHistoryDays {
+-  _maintenanceHistoryDays = maintenanceHistoryDays;
+-  KPK_METADATA_UPDATE_DATE(self.settingsChanged)
++  if(_maintenanceHistoryDays != maintenanceHistoryDays) {
++    _maintenanceHistoryDays = maintenanceHistoryDays;
++    KPK_METADATA_UPDATE_DATE(self.settingsChanged)
++  }
+ }
+ 
+ - (void)setDefaultUserName:(NSString *)defaultUserName {
+@@ -469,7 +473,7 @@ - (void)_mergeWithMetaDataFromTree:(KPKTree *)tree mode:(KPKSynchronizationMode)
+   KPKMetaData *otherMetaData = tree.metaData;
+   
+   BOOL forceUpdate = (mode == KPKSynchronizationModeOverwriteExisting);
+-  BOOL otherIsNewer = NSOrderedAscending == [otherMetaData.settingsChanged compare:self.settingsChanged];
++  BOOL otherIsNewer = NSOrderedAscending == [self.settingsChanged compare:otherMetaData.settingsChanged];
+   KPK_SCOPED_NO_BEGIN(self.updateTiming)
+   if(forceUpdate || otherIsNewer) {
+     self.settingsChanged = otherMetaData.settingsChanged;
+diff --git a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
+index 82bdbb7..828b91b 100644
+--- a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
++++ b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
+@@ -213,10 +213,13 @@ - (KPKTree *)tree:(NSError * _Nullable __autoreleasing *)error {
+   
+   KPKTree *tree = [reader tree:error];
+   if(tree) {
++    /* header values are read, not changed: keep SettingsChanged as the file has it */
++    tree.metaData.updateTiming = NO;
+     tree.metaData.keyDerivationParameters = self.mutableKeyDerivationParameters;
+     tree.metaData.compressionAlgorithm = self.compressionAlgorithm;
+     tree.metaData.cipherUUID = self.cipherUUID;
+     tree.metaData.mutableCustomPublicData = self.customPublicData;
++    tree.metaData.updateTiming = YES;
+     
+     if(reader.headerHash && ![self.headerData.SHA256Hash isEqualToData:reader.headerHash]) {
+       KPKCreateError(error, KPKErrorKdbxHeaderHashVerificationFailed);

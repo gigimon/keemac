@@ -41,6 +41,40 @@ final class DatabaseMaintenanceTests: XCTestCase {
 
     // MARK: Settings
 
+    func testSavingEntriesKeepsSettingsChanged() async throws {
+        let created = try XCTUnwrap(try readTree().metaData?.settingsChanged)
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        let (loader, vault) = try await open()
+        XCTAssertEqual(try readTree().metaData?.settingsChanged, created, "reading the file doesn't change it")
+        _ = try await loader.createEntry(inGroupPath: vault.groups.first?.path, form: VaultEntryForm(title: "Entry"))
+        XCTAssertEqual(try readTree().metaData?.settingsChanged, created, "saving an entry isn't a settings change")
+
+        var settings = try await loader.databaseSettings()
+        settings.details = "Changed"
+        _ = try await loader.updateDatabaseSettings(settings)
+        let changed = try XCTUnwrap(try readTree().metaData?.settingsChanged)
+        XCTAssertGreaterThan(changed, created)
+    }
+
+    func testMergeTakesSettingsOfTheNewerSide() throws {
+        let local = try readTree()
+        let remote = try readTree()
+        let older = Date(timeIntervalSinceNow: -3_600)
+        local.metaData?.setValue(older, forKey: "settingsChanged")
+        remote.metaData?.color = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+        XCTAssertGreaterThan(try XCTUnwrap(remote.metaData?.settingsChanged), older)
+
+        local.synchronize(with: remote, mode: .synchronize, options: [])
+        XCTAssertEqual(local.metaData?.settingsChanged, remote.metaData?.settingsChanged)
+        XCTAssertNotNil(local.metaData?.color, "the newer side's color wins")
+
+        let stale = try readTree()
+        stale.metaData?.color = nil
+        stale.metaData?.setValue(older, forKey: "settingsChanged")
+        local.synchronize(with: stale, mode: .synchronize, options: [])
+        XCTAssertNotNil(local.metaData?.color, "an older side doesn't overwrite it")
+    }
+
     func testCipherAndKeyDerivationRoundTrip() async throws {
         let (loader, _) = try await open()
         var settings = try await loader.databaseSettings()

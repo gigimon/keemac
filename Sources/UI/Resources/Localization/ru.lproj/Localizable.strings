@@ -312,7 +312,7 @@
 "KeeMac, locked" = "KeeMac, заблокирован";
 "KeeMac, unlocked" = "KeeMac, разблокирован";
 "KeePass KDBX database" = "База данных KeePass KDBX";
-"KeePass database engine (KDBX reading, writing and encryption), with KeeMac’s hardware key patch" = "Движок баз данных KeePass (чтение, запись и шифрование KDBX), с патчем KeeMac для аппаратных ключей";
+"KeePass database engine (KDBX reading, writing and encryption), with KeeMac’s patches" = "Движок баз данных KeePass (чтение, запись и шифрование KDBX), с патчами KeeMac";
 "KeePassXC-Browser" = "KeePassXC-Browser";
 "KeePassXC-Browser asks for this group to save logins in." = "KeePassXC-Browser просит создать эту группу для сохранения логинов.";
 "KeePassXC-Browser asks to save a changed login for %@." = "KeePassXC-Browser просит сохранить изменённый логин для %@.";

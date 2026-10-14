@@ -59,7 +59,7 @@ Review notes:
 ## Review fixes (docs/reviews/2026-10-14-branch-feature-hardware-key.md)
 
 - Database Settings change the KDF parameters (and seed) only when the key derivation changes; renaming no longer asks the key. The Touch ID response is refreshed after new encryption settings and merges.
-- The archiver no longer writes KDF parameters back into the metadata (it bumped `SettingsChanged`). Note: plain databases also get a new `SettingsChanged` on every save; that predates this feature.
+- The archiver no longer writes KDF parameters back into the metadata (it bumped `SettingsChanged`). Plain databases also got a new `SettingsChanged` on every save (the unarchiver set the KDF parameters after reading, which bumped it); fixed later by `scripts/patches/keepasskit-settings-changed.patch`, which also makes merges take the newer side's settings (KeePassKit compared them the wrong way round).
 - The driver reads response parts until the key ends them (as ykpers), checking only the first bytes and their CRC.
 - Stored Touch ID responses carry the slot they came from and only stand in for that slot.
 - Locking cancels a pending hardware key panel; Touch ID's authenticated context is dropped after reading the response; unlock captures the selection before scanning; device failures are a localized `HardwareKeyFailure`; keys with a hidden serial number are reported; found devices are cached between challenges.

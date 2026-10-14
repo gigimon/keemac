@@ -32,7 +32,7 @@ enum AboutLicenses {
     static let components: [LicensedComponent] = [
         LicensedComponent(
             name: "KeePassKit",
-            role: L("KeePass database engine (KDBX reading, writing and encryption), with KeeMac’s hardware key patch"),
+            role: L("KeePass database engine (KDBX reading, writing and encryption), with KeeMac’s patches"),
             license: "GPL-3.0-or-later",
             copyright: "Copyright © 2012–2014 Michael Starke, HicknHack Software GmbH",
             sourceURL: URL(string: "https://github.com/MacPass/KeePassKit/tree/b5cf50ee4ebd67cb355792d7813965fe3ac7125e"),
