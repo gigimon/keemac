@@ -29,11 +29,92 @@ Decisions (brainstorming, October 2026):
 
 Stack: Swift 6.1, SwiftUI (custom entry list in `VaultBrowserView`, no `List(selection:)`), KeePassKit through `KeePassKitVaultLoader`; no new dependencies.
 
+## Design details (KeeMac.dc.html: "Selection panel", "Tags popover", "Move to Group sheet"; demo states "Selection · …", "Tags popover · …", "Move to Group · …", "Delete confirmation", "Delete permanently", "Drag · …", "Context menu")
+
+### List
+- All selected rows get the accent fill. The focused row adds an inner ring (`inset 0 0 0 1.5px rgba(255,255,255,.7)` plus a darker 3px ring).
+- The header count becomes "N selected" in the accent color, semibold.
+- ⌘⇧-click adds a range to the current selection.
+
+### Selection panel
+Centered column, max width 460, padding 44/36 (Compact 24):
+- a fan of up to 4 tiles: 56 pt, radius 14, offset 26 pt and rotated 7° per step, white 2 pt outline, shadow;
+- title "N entries selected" (19 pt bold);
+- names: "A, B and C" or "A, B, C and N more";
+- a line with a `database` icon and the database name, plus a group icon and path when every entry is in one group (bin: trash icon + "Trash").
+
+Buttons, 2-column grid with 8 pt gap:
+- Tahoe: icon above label, height 64, radius 14, fill rgba(0,0,0,.045).
+- Classic: white raised buttons, radius 7.
+- Compact: icon beside label, height 36, radius 8.
+- Labels: Move to Group…, Tags…, Add/Remove from Favorites (star filled orange when all are favorites), Move to Trash or Delete Permanently (danger tint).
+- Bin variant: title "N entries in Trash", buttons Restore and Delete Permanently.
+
+Hint below the buttons: "⌘-click to add or remove, ⇧-click to select a range, Esc to clear".
+
+### Tags popover
+Anchored under the Tags… button, 280 wide, radius 12.
+
+At the top, a "New tag" field (tag icon) with a suggestion list:
+- prefix matches;
+- "Create “x”" when nothing matches exactly;
+- the first item is highlighted, and Return picks it, adding the tag checked.
+
+Rows (max height 240):
+- tri-state checkbox: check / dash / empty;
+- tag color dot (`KM.tagColor`);
+- name, semibold when changed;
+- "k of N" for a mixed tag still mixed;
+- an accent dot marking a changed row.
+
+Clicking cycles mixed → all → none (→ mixed again if it started mixed); none → all.
+
+Footer: "N changes" + Cancel / Done. Done adds the tags now "all" and removes the ones now "none", as one step. "No tags yet" when the database has none.
+
+### Move to Group sheet
+- Title "Move to Group", subtitle "N entries · <database>".
+- Search field, then groups of the selection's database:
+  - indented by depth;
+  - a flat list with paths while searching;
+  - a "Current" badge on groups that hold selected entries.
+- Click selects, double-click moves.
+- Primary "Move N Entries" is disabled until a group other than the current one is picked. Return moves, or picks the only match. "No groups match".
+
+### Confirmations
+- Move to Trash: "Move N entries to Trash?" / "You can restore them from the Trash." / Move to Trash.
+- Delete permanently: "Delete N entries permanently?" / "This can't be undone." / Delete Permanently.
+
+### Context menu (on a selected row)
+- Header "N Entries", then Move to Group…, Tags…, Add/Remove from Favorites, separator, Move to Trash (or Delete Permanently) with ⌘⌫.
+- Bin: Restore, separator, Delete Permanently.
+- Right-clicking an unselected row shows that row's normal menu.
+
+### Drag
+- The drag image is the first tile with the second tilted behind it, and a red count badge.
+- Over a group of another database, a hint "Copy or move to <database>" appears.
+
+### Toasts
+- "Moved N entries to <group>" (+ " · <database>")
+- "Added/Removed N entries to/from Favorites"
+- "Updated tags on N entries"
+- "Moved N entries to Trash" / "Deleted N entries"
+- "Restored N entries"
+
+### Esc
+Closes the tags popover or the move sheet first, then clears the selection.
+
+### Where we differ from the design
+- **Favorites:** the button is hidden for an additional database, which has no favorites.
+- **Recycle bin setting:** the panel follows each database's own recycle bin setting; the design assumes it's on for additional ones.
+- **Focus ring:** follows the focused entry, which ⇧-arrows move, rather than staying on the range anchor.
+- **⌘⌫:** new for the app; it also deletes a single entry.
+
+
 # Implementation
 
 ## Step 0: Design
-- [ ] Claude Design: selected rows (several), the selection panel (normal and bin variants), the tag popover with tri-state checkboxes, the Move… group picker, the delete confirmation with a count
-- [ ] Update the local design copy and check it against these decisions
+- [x] Claude Design: selected rows (several), the selection panel (normal and bin variants), the tag popover with tri-state checkboxes, the Move… group picker, the delete confirmation with a count
+- [x] Update the local design copy and check it against these decisions
 
 ## Step 1: Loader batch operations
 - [x] `VaultEditing`:
