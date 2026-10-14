@@ -10,7 +10,8 @@ KEEPASSKIT_REPO="https://github.com/MacPass/KeePassKit.git"
 
 # Pinned revisions of the vendored binaries. KeePassKit is GPLv3: the source for
 # Vendor/KeePassKit.xcframework is exactly this commit. Keep in sync with
-# Sources/UI/AboutLicenses.swift when updating.
+# Sources/UI/AboutLicenses.swift when updating. KeeMac's changes to KeePassKit
+# (hardware key challenge-response) are the patches in scripts/patches.
 KISSXML_REF="${KISSXML_REF:-990cdef080213b5a3f0d9709b845d553bd3ddb97}"
 KEEPASSKIT_REF="${KEEPASSKIT_REF:-b5cf50ee4ebd67cb355792d7813965fe3ac7125e}"
 
@@ -37,6 +38,10 @@ checkout_revision "$KISSXML_REPO" "$KISSXML_SRC" "$KISSXML_REF"
 checkout_revision "$KEEPASSKIT_REPO" "$KEEPASSKIT_SRC" "$KEEPASSKIT_REF"
 
 git -C "$KEEPASSKIT_SRC" submodule update --init --recursive
+
+for patch in "$ROOT_DIR"/scripts/patches/keepasskit-*.patch; do
+  git -C "$KEEPASSKIT_SRC" apply "$patch"
+done
 
 xcodebuild \
   -project "$KISSXML_SRC/KissXML.xcodeproj" \

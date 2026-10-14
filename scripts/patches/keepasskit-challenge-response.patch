@@ -1,0 +1,191 @@
+diff --git a/KeePassKit/IO/KDBX/KPKKdbxArchiver.m b/KeePassKit/IO/KDBX/KPKKdbxArchiver.m
+index 9328d0c..5ffaf3e 100644
+--- a/KeePassKit/IO/KDBX/KPKKdbxArchiver.m
++++ b/KeePassKit/IO/KDBX/KPKKdbxArchiver.m
+@@ -21,6 +21,7 @@
+ #import "KPKCipher.h"
+ #import "KPKKeyDerivation.h"
+ #import "KPKAESKeyDerivation.h"
++#import "KPKArgon2DKeyDerivation.h"
+ #import "KPKMetaData.h"
+ #import "KPKMetaData_Private.h"
+ #import "KPKXmlTreeWriter.h"
+@@ -111,6 +112,10 @@ - (instancetype)_initWithTree:(KPKTree *)tree key:(KPKCompositeKey *)key {
+   if(self) {
+     /* we write kdbx3 at minimum */
+     _fileVersion = KPKFileVersionMax(KPKMakeFileVersion(KPKDatabaseFormatKdbx, kKPKKdbxFileVersion3), self.tree.minimumVersion);
++    /* challenge-response keys follow KeePassXC's KDBX 4 scheme */
++    if(key.challengeResponseHandler) {
++      _fileVersion = KPKFileVersionMax(KPKMakeFileVersion(KPKDatabaseFormatKdbx, kKPKKdbxFileVersion4), _fileVersion);
++    }
+     
+     NSArray *allEntries = [self.tree.allEntries arrayByAddingObjectsFromArray:self.tree.allHistoryEntries];
+     NSMutableSet *tempBinaries = [[NSMutableSet alloc] init];
+@@ -164,7 +169,13 @@ - (NSData *)archiveTree:(NSError *__autoreleasing *)error {
+     KPKCreateError(error, KPKErrorUnsupportedKeyDerivation);
+     return nil;
+   }
+-  [keyDerivation randomize];
++  NSData *keptSeed = self.key.keepsKeyDerivationSeed ? keyDerivation.parameters[KPKArgon2SaltParameter] ?: keyDerivation.parameters[KPKAESSeedOption] : nil;
++  if(keptSeed.length == 0) {
++    [keyDerivation randomize];
++  }
++  if(self.key.keepsKeyDerivationSeed) {
++    self.tree.metaData.keyDerivationParameters = keyDerivation.parameters;
++  }
+   
+   self.masterSeed = [NSData kpk_dataWithRandomBytes:32];
+   self.encryptionIV = [NSData kpk_dataWithRandomBytes:cipher.IVLength];
+diff --git a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
+index e7ca11d..82bdbb7 100644
+--- a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
++++ b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
+@@ -109,6 +109,11 @@ - (KPKTree *)tree:(NSError * _Nullable __autoreleasing *)error {
+     return nil;
+   }
+   
++  /* KeePassXC's KDBX 3.1 challenge-response scheme isn't supported */
++  if(self.key.challengeResponseHandler && self.version < kKPKKdbxFileVersion4) {
++    KPKCreateError(error, KPKErrorUnsupportedDatabaseVersion);
++    return nil;
++  }
+   KPKCipher *cipher = [[KPKCipher alloc] initWithUUID:self.cipherUUID];
+   NSData *hmacKey;
+   NSData *keyData = [self.key computeKeyDataForFormat:KPKDatabaseFormatKdbx
+diff --git a/KeePassKit/Keys/KPKCompositeKey.h b/KeePassKit/Keys/KPKCompositeKey.h
+index 8c78435..55c946a 100644
+--- a/KeePassKit/Keys/KPKCompositeKey.h
++++ b/KeePassKit/Keys/KPKCompositeKey.h
+@@ -28,6 +28,13 @@
+ @class KPKCipher;
+ @class KPKKey;
+ 
++/**
++ *  Answers a hardware key challenge (YubiKey HMAC-SHA1 challenge-response).
++ *  The challenge is the key derivation seed, the result the raw response.
++ *  Return nil and set error to abort.
++ */
++typedef NSData *(^KPKChallengeResponseHandler)(NSData *challenge, NSError **error);
++
+ /**
+  *  The Composite Key to be used for encryption and decryption of databases
+  *  It does not store key nor password strings rather creates a composite key
+@@ -38,6 +45,16 @@
+  *  YES if the composite key has some form of key set.
+  */
+ @property (nonatomic, readonly) BOOL hasKeys;
++/**
++ *  Adds a challenge-response component (KeePassXC compatible, KDBX 4 only):
++ *  SHA-256 of the response is hashed together with the other keys before the key derivation.
++ */
++@property (nonatomic, copy) KPKChallengeResponseHandler challengeResponseHandler;
++/**
++ *  YES keeps the key derivation seed stored in the tree's metadata when saving instead of
++ *  randomizing it, so a challenge-response key is asked only once. Saving writes the seed it used back.
++ */
++@property (nonatomic) BOOL keepsKeyDerivationSeed;
+ /** Creates a composite key with the supplied keys
+  @param keys an array of keys to be used for the composite key. The key is order-dependant!
+  */
+diff --git a/KeePassKit/Keys/KPKCompositeKey.m b/KeePassKit/Keys/KPKCompositeKey.m
+index fb12142..dc4258f 100644
+--- a/KeePassKit/Keys/KPKCompositeKey.m
++++ b/KeePassKit/Keys/KPKCompositeKey.m
+@@ -28,6 +28,7 @@
+ 
+ #import "KPKKeyDerivation.h"
+ #import "KPKAESKeyDerivation.h"
++#import "KPKArgon2DKeyDerivation.h"
+ #import "KPKCipher.h"
+ 
+ #import "KPKKey.h"
+@@ -45,6 +46,9 @@
+ @interface KPKCompositeKey ()
+ 
+ @property (strong) NSMutableArray *keys;
++@property (copy) NSData *cachedKeyData;
++@property (copy) NSDictionary *cachedDerivationParameters;
++@property (copy) NSData *cachedDerivedData;
+ 
+ @end
+ 
+@@ -124,7 +128,7 @@ - (BOOL)isEqualToKey:(KPKCompositeKey *)key {
+ 
+ #pragma mark Properties
+ - (BOOL)hasKeys {
+-  return self.keys.count > 0;
++  return self.keys.count > 0 || self.challengeResponseHandler != nil;
+ }
+ 
+ - (BOOL)hasKeyOfClass:(Class)keyClass {
+@@ -155,11 +159,40 @@ - (NSData *)computeKeyDataForFormat:(KPKDatabaseFormat)format masterseed:(NSData
+     KPKCreateError(error, KPKErrorUnknownFileFormat);
+     return nil;
+   }
+-  NSData *keyData = [self _createKeyDataForFormat:format];
+-  NSData *derivedData = [keyDerivation deriveData:keyData];
++  NSData *challengeResult = nil;
++  if(self.challengeResponseHandler) {
++    if(format != KPKDatabaseFormatKdbx) {
++      KPKCreateError(error, KPKErrorUnsupportedDatabaseVersion);
++      return nil;
++    }
++    NSData *challenge = keyDerivation.parameters[KPKArgon2SaltParameter] ?: keyDerivation.parameters[KPKAESSeedOption];
++    if(challenge.length == 0) {
++      KPKCreateError(error, KPKErrorUnsupportedKeyDerivation);
++      return nil;
++    }
++    NSData *response = self.challengeResponseHandler(challenge, error);
++    if(!response) {
++      return nil;
++    }
++    challengeResult = response.SHA256Hash;
++  }
++  NSData *keyData = [self _createKeyDataForFormat:format challengeResult:challengeResult];
++  /* With a kept seed every save derives the same key, so the last result is reused */
++  NSData *derivedData = nil;
++  if(self.keepsKeyDerivationSeed && [self.cachedKeyData isEqualToData:keyData] && [self.cachedDerivationParameters isEqualToDictionary:keyDerivation.parameters]) {
++    derivedData = self.cachedDerivedData;
++  }
+   if(!derivedData) {
+-    KPKCreateError(error, KPKErrorKeyDerivationFailed);
+-    return nil;
++    derivedData = [keyDerivation deriveData:keyData];
++    if(!derivedData) {
++      KPKCreateError(error, KPKErrorKeyDerivationFailed);
++      return nil;
++    }
++    if(self.keepsKeyDerivationSeed) {
++      self.cachedKeyData = keyData;
++      self.cachedDerivationParameters = keyDerivation.parameters;
++      self.cachedDerivedData = derivedData;
++    }
+   }
+   NSAssert(derivedData.length == 32, @"Invalid key size after key derivation!");
+   NSMutableData *workingData = [seed mutableCopy];
+@@ -178,12 +211,12 @@ - (NSData *)computeKeyDataForFormat:(KPKDatabaseFormat)format masterseed:(NSData
+   return [workingData kpk_resizeKeyDataRange:NSMakeRange(0, workingData.length - 1) toLength:cipher.keyLength];
+ }
+ 
+-- (NSData *)_createKeyDataForFormat:(KPKDatabaseFormat)format {
++- (NSData *)_createKeyDataForFormat:(KPKDatabaseFormat)format challengeResult:(NSData *)challengeResult {
+   if(format == KPKDatabaseFormatUnknown) {
+     return nil; // unkown format, nothing to do
+   }
+   
+-  if(self.keys.count == 0) {
++  if(self.keys.count == 0 && challengeResult.length == 0) {
+     return nil; // no keys, nothing to do
+   }
+   /* KDB uses the password or file hash directly without re-hashing */
+@@ -210,6 +243,10 @@ - (NSData *)_createKeyDataForFormat:(KPKDatabaseFormat)format {
+     NSAssert(keyData.length == kKPKKeyFileLength, @"Unexpected key size");
+     CC_SHA256_Update(&ctx, keyData.bytes, (CC_LONG)keyData.length);
+   }
++  /* KeePassXC: the hash of all challenge responses follows the static keys */
++  if(challengeResult.length > 0) {
++    CC_SHA256_Update(&ctx, challengeResult.bytes, (CC_LONG)challengeResult.length);
++  }
+   // Finish the hash into the master key
+   uint8_t masterKey[ kKPKKeyFileLength];
+   CC_SHA256_Final(masterKey, &ctx);

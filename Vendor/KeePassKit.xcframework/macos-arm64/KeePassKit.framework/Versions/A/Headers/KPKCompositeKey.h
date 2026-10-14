@@ -29,6 +29,13 @@
 @class KPKKey;
 
 /**
+ *  Answers a hardware key challenge (YubiKey HMAC-SHA1 challenge-response).
+ *  The challenge is the key derivation seed, the result the raw response.
+ *  Return nil and set error to abort.
+ */
+typedef NSData *(^KPKChallengeResponseHandler)(NSData *challenge, NSError **error);
+
+/**
  *  The Composite Key to be used for encryption and decryption of databases
  *  It does not store key nor password strings rather creates a composite key
  *  every time the password or keyfile is set.
@@ -38,6 +45,16 @@
  *  YES if the composite key has some form of key set.
  */
 @property (nonatomic, readonly) BOOL hasKeys;
+/**
+ *  Adds a challenge-response component (KeePassXC compatible, KDBX 4 only):
+ *  SHA-256 of the response is hashed together with the other keys before the key derivation.
+ */
+@property (nonatomic, copy) KPKChallengeResponseHandler challengeResponseHandler;
+/**
+ *  YES keeps the key derivation seed stored in the tree's metadata when saving instead of
+ *  randomizing it, so a challenge-response key is asked only once. Saving writes the seed it used back.
+ */
+@property (nonatomic) BOOL keepsKeyDerivationSeed;
 /** Creates a composite key with the supplied keys
  @param keys an array of keys to be used for the composite key. The key is order-dependant!
  */
