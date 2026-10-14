@@ -47,7 +47,11 @@ Priority: **P1** — expected by most users / parity with KeePassXC & MacPass, *
 
 - [ ] **More import formats** (1Password, Bitwarden, KeePassXC) — 1Password `.1pux`, Bitwarden JSON (incl. password-protected), Proton Pass, Dashlane, Enpass, Apple Passwords with notes/OTP
 - [ ] **KeeShare** (KeePassXC) — share a group through a separate synchronized `.kdbx` container (import / export / sync modes, KeePassXC-compatible)
-- [ ] **Database maintenance settings** (KeePassXC, MacPass) — recycle bin on/off and group choice, history limits (items/size) for existing databases, remove unused custom icons, change key file / KDF / cipher of an open database
+- [ ] **Database maintenance settings** (KeePassXC, MacPass) — plan: [2026-10-14-database-maintenance.md](2026-10-14-database-maintenance.md) — recycle bin on/off and group choice, history limits (items/size) for existing databases, remove unused custom icons, change key file / KDF / cipher of an open database
+  - Recycle bin toggle and group (asks what to do with the bin's entries when turned off)
+  - History limits (versions, size) for new changes; cipher next to the KDF
+  - Change Master Key sheet: current password, new password, key file keep/choose/generate/remove
+  - Remove unused custom icons
 - [ ] **Custom icons management** (MacPass, KeePassXC) — add icons from files, bulk download favicons for existing entries, icon library per database
 - [ ] **Extended Watchtower** (1Password, Bitwarden) — sites that support 2FA but have none (2fa.directory), insecure `http://` URLs, duplicate entries, checking usernames/emails in breaches
 - [ ] **Command-line tool** (keepassxc-cli, Bitwarden CLI) — `keemac` CLI: search, show, clip, totp, generate; talks to the unlocked app over a local XPC/socket with confirmation, or opens a file directly
