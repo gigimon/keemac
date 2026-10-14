@@ -156,6 +156,7 @@ public struct VaultBrowserView: View {
     private let onAdvanceHOTP: @Sendable (_ id: UUID) async throws -> Void
     private let onRevertEntry: @Sendable (_ id: UUID, _ historyIndex: Int) async throws -> Void
     private let onToggleFavorite: (UUID) -> Void
+    private let bulkActions: EntryBulkActions
     private let onEntryViewed: (UUID) -> Void
     private let onEntryUsed: (UUID) -> Void
     private let onLockVault: () -> Void
@@ -168,6 +169,9 @@ public struct VaultBrowserView: View {
     @State private var selectedSidebarItemID: String?
     @State private var expandedGroupPaths: Set<String>
     @State private var selection = EntrySelection()
+    /// The tags popover of the selection panel, open while non-nil.
+    @State private var bulkTagEditor: BulkTagEditor?
+    @State private var isShowingMoveSheet = false
     @State private var editingEntryID: VaultEntry.ID?
     /// Opened from an Auto-Type error: its editor starts with the Auto-Type section expanded.
     @State private var autoTypeEditEntryID: VaultEntry.ID?
@@ -238,6 +242,7 @@ public struct VaultBrowserView: View {
         onRevertEntry: @escaping @Sendable (_ id: UUID, _ historyIndex: Int) async throws -> Void,
         onAdvanceHOTP: @escaping @Sendable (_ id: UUID) async throws -> Void = { _ in },
         onToggleFavorite: @escaping (UUID) -> Void,
+        bulkActions: EntryBulkActions = EntryBulkActions(),
         onEntryViewed: @escaping (UUID) -> Void,
         onEntryUsed: @escaping (UUID) -> Void,
         onLockVault: @escaping () -> Void,
@@ -284,6 +289,7 @@ public struct VaultBrowserView: View {
         self.onAdvanceHOTP = onAdvanceHOTP
         self.onRevertEntry = onRevertEntry
         self.onToggleFavorite = onToggleFavorite
+        self.bulkActions = bulkActions
         self.onEntryViewed = onEntryViewed
         self.onEntryUsed = onEntryUsed
         self.onLockVault = onLockVault
@@ -650,9 +656,9 @@ public struct VaultBrowserView: View {
                             onCreateSubgroup: { groupEditorMode = .create(parentPath: $0) },
                             onEditGroup: editGroup,
                             onDeleteGroup: confirmDeleteGroup,
-                            onMoveEntry: { id, path in
+                            onMoveEntries: { ids, path in
                                 Task {
-                                    await performMoveEntry(id: id, toGroupPath: path)
+                                    await performMoveEntries(ids, toGroupPath: path)
                                 }
                             },
                             onMoveGroup: { sourcePath, parentPath in
@@ -733,9 +739,9 @@ public struct VaultBrowserView: View {
                 SidebarDragPayload.handleDrop(
                     payloads: payloads,
                     targetGroupPath: nil,
-                    onMoveEntry: { id, path in
+                    onMoveEntries: { ids, path in
                         Task {
-                            await performMoveEntry(id: id, toGroupPath: path)
+                            await performMoveEntries(ids, toGroupPath: path)
                         }
                     },
                     onMoveGroup: { sourcePath, parentPath in
@@ -1206,6 +1212,12 @@ public struct VaultBrowserView: View {
             }
             .keyboardShortcut("a", modifiers: [.command])
             .disabled(!isListFocused)
+
+            Button("") {
+                deleteSelectedEntries()
+            }
+            .keyboardShortcut(.delete, modifiers: [.command])
+            .disabled(!isListFocused)
         }
         .frame(width: 0, height: 0)
         .opacity(0)
@@ -1218,7 +1230,15 @@ public struct VaultBrowserView: View {
         let entries = filteredEntries
         return VStack(spacing: 0) {
             HStack {
-                Text(L("\(entries.count) entries"))
+                Group {
+                    if selection.isMultiple {
+                        Text(L("\(selection.ids.count) selected"))
+                            .fontWeight(.semibold)
+                            .foregroundStyle(KM.accent)
+                    } else {
+                        Text(L("\(entries.count) entries"))
+                    }
+                }
                 .accessibilityIdentifier("list.count")
                 Spacer()
                 if isTrashSelection, trimmedQuery.isEmpty, !entries.isEmpty {
@@ -1342,7 +1362,11 @@ public struct VaultBrowserView: View {
             handleClick(on: entry)
         }
         .contextMenu {
-            entryContextMenu(entry)
+            if selection.isMultiple, selection.contains(entry.id) {
+                bulkContextMenu
+            } else {
+                entryContextMenu(entry)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entryAccessibilityLabel(entry))
@@ -1351,7 +1375,44 @@ public struct VaultBrowserView: View {
         .accessibilityAction {
             selectedEntryID = entry.id
         }
-        .draggable(SidebarDragPayload.entryPayload(for: entry.id))
+        .draggable(dragPayload(for: entry)) {
+            dragPreview(for: entry)
+        }
+    }
+
+    /// The row's tile; for a selection, the first two tiles stacked with a count badge.
+    @ViewBuilder
+    private func dragPreview(for entry: VaultEntry) -> some View {
+        let isSelectionDrag = selection.isMultiple && selection.contains(entry.id)
+        let entries = isSelectionDrag ? selectedEntries : [entry]
+        ZStack(alignment: .topTrailing) {
+            ZStack {
+                if entries.count > 1 {
+                    EntryTile(entry: entries[1], supportsTypes: supportsEntryTypes)
+                        .rotationEffect(.degrees(8))
+                        .offset(x: 4, y: -3)
+                }
+                EntryTile(entry: entries[0], supportsTypes: supportsEntryTypes)
+                    .shadow(color: .black.opacity(0.25), radius: 5, y: 4)
+            }
+            .padding(10)
+            if entries.count > 1 {
+                Text("\(entries.count)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .frame(minWidth: 20, minHeight: 20)
+                    .background(Capsule().fill(Color.red))
+            }
+        }
+    }
+
+    /// Dragging a selected row drags the whole selection.
+    private func dragPayload(for entry: VaultEntry) -> String {
+        guard selection.isMultiple, selection.contains(entry.id) else {
+            return SidebarDragPayload.entryPayload(for: entry.id)
+        }
+        return SidebarDragPayload.entriesPayload(for: selectedEntries.map(\.id))
     }
 
     private func compactEntryRow(_ entry: VaultEntry) -> some View {
@@ -1388,6 +1449,7 @@ public struct VaultBrowserView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(isSelected ? KM.accent : Color.clear)
         )
+        .overlay(focusRing(for: entry, cornerRadius: 6))
     }
 
     private func richEntryRow(_ entry: VaultEntry) -> some View {
@@ -1429,6 +1491,22 @@ public struct VaultBrowserView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isSelected ? KM.accent : Color.clear)
         )
+        .overlay(focusRing(for: entry, cornerRadius: 10))
+    }
+
+    /// Marks the focused row of a multi-selection (the card it would show, where ⇧-arrows extend from).
+    @ViewBuilder
+    private func focusRing(for entry: VaultEntry, cornerRadius: CGFloat) -> some View {
+        if selection.isMultiple, selection.focus == entry.id {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.7), lineWidth: 1.5)
+                .padding(1.5)
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.black.opacity(0.3), lineWidth: 1.5)
+                )
+                .allowsHitTesting(false)
+        }
     }
 
     private func syncMarker(isSelected: Bool, size: CGFloat) -> some View {
@@ -1563,12 +1641,7 @@ public struct VaultBrowserView: View {
     private var detailColumn: some View {
         Group {
             if selection.isMultiple {
-                // Replaced by the selection panel in Step 4.
-                Text(L("\(selection.ids.count) entries selected"))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(KM.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("selection.count")
+                selectionPanel
             } else if let entry = selectedEntry {
                 if editingEntryID == entry.id {
                     EntryEditorPane(
@@ -1837,6 +1910,195 @@ public struct VaultBrowserView: View {
     private func selectAllEntries() {
         let entries = filteredEntries
         selection.selectAll(in: entries.map(\.id), database: databaseKeys(entries))
+    }
+
+    // MARK: - Bulk actions
+
+    /// The selected entries in list order.
+    private var selectedEntries: [VaultEntry] {
+        filteredEntries.filter { selection.contains($0.id) }
+    }
+
+    private var selectionDatabaseKey: String? {
+        selectedEntries.first.flatMap { DatabaseScope.key(of: $0.groupPath) }
+    }
+
+    private var selectionIsTrash: Bool {
+        let entries = selectedEntries
+        return !entries.isEmpty && entries.allSatisfy(\.isTrashed)
+    }
+
+    /// Like a single entry: additional databases are treated as having a recycle bin.
+    private var selectionUsesRecycleBin: Bool {
+        vault.summary.usesRecycleBin || selectionDatabaseKey != nil
+    }
+
+    private var selectionLocation: EntrySelectionLocation {
+        let name = databaseName(selectionDatabaseKey)
+        if selectionIsTrash {
+            return EntrySelectionLocation(databaseName: name, groupSymbol: "trash", groupPath: L("Trash"))
+        }
+        let groups = Set(selectedEntries.map(\.groupPath))
+        guard groups.count == 1, let path = groups.first else {
+            return EntrySelectionLocation(databaseName: name, groupSymbol: nil, groupPath: nil)
+        }
+        return EntrySelectionLocation(databaseName: name, groupSymbol: "folder", groupPath: displayGroupPath(path))
+    }
+
+    private func tags(ofDatabase key: String?) -> [String] {
+        vault.entries.filter { !$0.isTrashed && DatabaseScope.key(of: $0.groupPath) == key }.flatMap(\.tags)
+    }
+
+    /// The database's root, then its groups one level deeper.
+    private func moveOptions(forDatabase key: String?) -> [GroupOption] {
+        let root = key.flatMap { additional.rootPaths[$0] } ?? rootPath
+        let groups = groupOptions(forDatabase: key).map { GroupOption(path: $0.path, title: $0.title, depth: $0.depth + 1) }
+        return [GroupOption(path: root, title: databaseName(key), depth: 0)] + groups
+    }
+
+    private var selectionPanel: some View {
+        let entries = selectedEntries
+        let key = selectionDatabaseKey
+        return EntrySelectionPanel(
+            entries: entries,
+            supportsTypes: key.map { additional.supportsEntryTypes[$0] ?? false } ?? supportsEntryTypes,
+            layout: layout,
+            location: selectionLocation,
+            isTrash: selectionIsTrash,
+            showsFavorite: key == nil,
+            allFavorite: entries.allSatisfy { favoriteEntryIDs.contains($0.id) },
+            usesRecycleBin: selectionUsesRecycleBin,
+            isBusy: isPerformingMutation,
+            tagEditor: $bulkTagEditor,
+            knownTags: tags(ofDatabase: key),
+            onMove: { isShowingMoveSheet = true },
+            onOpenTags: openBulkTags,
+            onApplyTags: { editor in Task { await performBulkTags(editor) } },
+            onFavorite: performBulkFavorite,
+            onDelete: confirmBulkDelete,
+            onRestore: { Task { await performBulkRestore() } }
+        )
+        .sheet(isPresented: $isShowingMoveSheet) {
+            MoveToGroupSheet(
+                entryCount: entries.count,
+                databaseName: databaseName(key),
+                options: moveOptions(forDatabase: key),
+                currentPaths: Set(entries.filter { !$0.isTrashed }.map(\.groupPath)),
+                onMove: { path in
+                    isShowingMoveSheet = false
+                    Task { await performBulkMove(ids: entries.map(\.id), to: path) }
+                },
+                onCancel: { isShowingMoveSheet = false }
+            )
+        }
+    }
+
+    private func openBulkTags() {
+        let entries = selectedEntries
+        bulkTagEditor = BulkTagEditor(entryTags: entries.map(\.tags), databaseTags: tags(ofDatabase: selectionDatabaseKey))
+    }
+
+    private func performBulkTags(_ editor: BulkTagEditor) async {
+        let changes = editor.changes
+        guard !changes.adding.isEmpty || !changes.removing.isEmpty else {
+            return
+        }
+        let ids = selectedEntries.map(\.id)
+        if await runMutation({ try await bulkActions.updateTags(ids, changes.adding, changes.removing) }) {
+            showUndoToast(L("Updated tags on \(ids.count) entries"))
+        }
+    }
+
+    private func performBulkFavorite() {
+        let ids = selectedEntries.map(\.id)
+        let allFavorite = ids.allSatisfy(favoriteEntryIDs.contains)
+        bulkActions.setFavorite(!allFavorite, ids)
+        CopyFeedbackCenter.shared.show(
+            allFavorite ? L("Removed \(ids.count) entries from Favorites") : L("Added \(ids.count) entries to Favorites"),
+            duration: 2.4
+        )
+    }
+
+    /// Moves within the selection's database; a group of another database goes through the transfer sheet.
+    private func performBulkMove(ids: [UUID], to groupPath: String) async {
+        guard !ids.isEmpty else {
+            return
+        }
+        let sourceKey = vault.entries.first { $0.id == ids[0] }.flatMap { DatabaseScope.key(of: $0.groupPath) }
+        if sourceKey != DatabaseScope.key(of: groupPath) {
+            startTransfer(entryIDs: ids, groupPath: nil, to: groupPath, isCopy: NSEvent.modifierFlags.contains(.option))
+            return
+        }
+        if await runMutation({ try await bulkActions.move(ids, groupPath) }) {
+            selection.collapse()
+            showUndoToast(L("Moved \(ids.count) entries to \(GroupPathFormatter.title(of: groupPath))"))
+        }
+    }
+
+    private func confirmBulkDelete() {
+        let entries = selectedEntries
+        let isPermanent = selectionIsTrash || !selectionUsesRecycleBin
+        let count = entries.count
+        confirmRequest = ConfirmRequest(
+            title: isPermanent ? L("Delete \(count) entries permanently?") : L("Move \(count) entries to Trash?"),
+            message: isPermanent ? L("This can't be undone.") : L("You can restore them from the Trash."),
+            confirmTitle: isPermanent ? L("Delete Permanently") : L("Move to Trash")
+        ) {
+            confirmRequest = nil
+            Task {
+                if await runMutation({ try await bulkActions.delete(entries.map(\.id)) }) {
+                    selectedEntryID = nil
+                    ensureValidSelection()
+                    showUndoToast(isPermanent ? L("Deleted \(count) entries") : L("Moved \(count) entries to Trash"))
+                }
+            }
+        }
+    }
+
+    private func performBulkRestore() async {
+        let ids = selectedEntries.map(\.id)
+        if await runMutation({ try await bulkActions.restore(ids) }) {
+            selectedEntryID = nil
+            ensureValidSelection()
+            showUndoToast(L("Restored \(ids.count) entries"))
+        }
+    }
+
+    /// ⌘⌫: the selection, or the focused entry.
+    private func deleteSelectedEntries() {
+        guard editingEntryID == nil, !isPerformingMutation else {
+            return
+        }
+        if selection.isMultiple {
+            confirmBulkDelete()
+        } else if let entry = selectedEntry {
+            if entry.isTrashed {
+                confirmDeletePermanently(entry)
+            } else {
+                confirmMoveToTrash(entry)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var bulkContextMenu: some View {
+        let count = selectedEntries.count
+        Text(L("\(count) Entries"))
+        if selectionIsTrash {
+            Button(L("Restore")) { Task { await performBulkRestore() } }
+            Divider()
+            Button(L("Delete Permanently"), role: .destructive) { confirmBulkDelete() }
+        } else {
+            Button(L("Move to Group…")) { isShowingMoveSheet = true }
+            Button(L("Tags…")) { openBulkTags() }
+            if selectionDatabaseKey == nil {
+                let allFavorite = selectedEntries.allSatisfy { favoriteEntryIDs.contains($0.id) }
+                Button(allFavorite ? L("Remove from Favorites") : L("Add to Favorites")) { performBulkFavorite() }
+            }
+            Divider()
+            Button(selectionUsesRecycleBin ? L("Move to Trash") : L("Delete Permanently"), role: .destructive) { confirmBulkDelete() }
+                .keyboardShortcut(.delete, modifiers: [.command])
+        }
     }
 
     private var selectedEntry: VaultEntry? {
@@ -2192,6 +2454,15 @@ public struct VaultBrowserView: View {
         _ = await runMutation { try await onMoveEntry(id, groupPath) }
     }
 
+    /// A dropped entry or selection; nil is the main database's root.
+    private func performMoveEntries(_ ids: [UUID], toGroupPath groupPath: String?) async {
+        if ids.count == 1 {
+            await performMoveEntry(id: ids[0], toGroupPath: groupPath)
+        } else {
+            await performBulkMove(ids: ids, to: groupPath ?? rootPath)
+        }
+    }
+
     private func performMoveGroup(path: String, toParentPath parentPath: String?) async {
         if DatabaseScope.key(of: path) != DatabaseScope.key(of: parentPath) {
             startTransfer(entryIDs: [], groupPath: path, to: parentPath, isCopy: NSEvent.modifierFlags.contains(.option))
@@ -2417,7 +2688,7 @@ fileprivate struct GroupTreeRowView: View {
     let onCreateSubgroup: (String) -> Void
     let onEditGroup: (String) -> Void
     let onDeleteGroup: (String) -> Void
-    let onMoveEntry: @MainActor (UUID, String?) -> Void
+    let onMoveEntries: @MainActor ([UUID], String?) -> Void
     let onMoveGroup: @MainActor (String, String?) -> Void
     /// Other open databases this group can be moved or copied to.
     var transferTargets: [VaultBrowserView.TransferTarget] = []
@@ -2449,7 +2720,7 @@ fileprivate struct GroupTreeRowView: View {
                         onCreateSubgroup: onCreateSubgroup,
                         onEditGroup: onEditGroup,
                         onDeleteGroup: onDeleteGroup,
-                        onMoveEntry: onMoveEntry,
+                        onMoveEntries: onMoveEntries,
                         onMoveGroup: onMoveGroup,
                         transferTargets: transferTargets,
                         onTransferGroup: onTransferGroup
@@ -2523,7 +2794,7 @@ fileprivate struct GroupTreeRowView: View {
             SidebarDragPayload.handleDrop(
                 payloads: payloads,
                 targetGroupPath: node.path,
-                onMoveEntry: onMoveEntry,
+                onMoveEntries: onMoveEntries,
                 onMoveGroup: onMoveGroup
             )
         } isTargeted: { targeted in
@@ -2576,12 +2847,18 @@ fileprivate enum SidebarDragPayload {
     static let groupPrefix = "keemac-group:"
 
     enum Decoded {
-        case entry(UUID)
+        /// One entry or a multi-selection.
+        case entries([UUID])
         case group(String)
     }
 
     static func entryPayload(for entryID: UUID) -> String {
         "\(entryPrefix)\(entryID.uuidString)"
+    }
+
+    /// Several entries: their IDs separated by commas.
+    static func entriesPayload(for entryIDs: [UUID]) -> String {
+        entryPrefix + entryIDs.map(\.uuidString).joined(separator: ",")
     }
 
     static func groupPayload(for groupPath: String) -> String {
@@ -2590,8 +2867,8 @@ fileprivate enum SidebarDragPayload {
 
     static func decode(_ value: String) -> Decoded? {
         if value.hasPrefix(entryPrefix) {
-            let uuidString = String(value.dropFirst(entryPrefix.count))
-            return UUID(uuidString: uuidString).map(Decoded.entry)
+            let ids = value.dropFirst(entryPrefix.count).split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+            return ids.isEmpty ? nil : .entries(ids)
         }
         if value.hasPrefix(groupPrefix) {
             let path = String(value.dropFirst(groupPrefix.count))
@@ -2620,13 +2897,13 @@ fileprivate enum SidebarDragPayload {
     static func handleDrop(
         payloads: [String],
         targetGroupPath: String?,
-        onMoveEntry: @escaping @MainActor (UUID, String?) -> Void,
+        onMoveEntries: @escaping @MainActor ([UUID], String?) -> Void,
         onMoveGroup: @escaping @MainActor (String, String?) -> Void
     ) -> Bool {
         for payload in payloads {
             switch decode(payload) {
-            case .entry(let id):
-                onMoveEntry(id, targetGroupPath)
+            case .entries(let ids):
+                onMoveEntries(ids, targetGroupPath)
                 return true
             case .group(let sourcePath):
                 guard isGroupMoveValid(sourcePath: sourcePath, targetParentPath: targetGroupPath) else {
@@ -2855,7 +3132,7 @@ extension VaultBrowserView {
                         return SidebarDragPayload.handleDrop(
                             payloads: payloads,
                             targetGroupPath: root,
-                            onMoveEntry: { id, path in Task { await performMoveEntry(id: id, toGroupPath: path) } },
+                            onMoveEntries: { ids, path in Task { await performMoveEntries(ids, toGroupPath: path) } },
                             onMoveGroup: { source, parent in Task { await performMoveGroup(path: source, toParentPath: parent) } }
                         )
                     }
@@ -2873,7 +3150,7 @@ extension VaultBrowserView {
                             onCreateSubgroup: { groupEditorMode = .create(parentPath: $0) },
                             onEditGroup: editGroup,
                             onDeleteGroup: confirmDeleteGroup,
-                            onMoveEntry: { id, path in Task { await performMoveEntry(id: id, toGroupPath: path) } },
+                            onMoveEntries: { ids, path in Task { await performMoveEntries(ids, toGroupPath: path) } },
                             onMoveGroup: { source, parent in Task { await performMoveGroup(path: source, toParentPath: parent) } },
                             transferTargets: transferTargets(excluding: database.id),
                             onTransferGroup: { path, target, isCopy in

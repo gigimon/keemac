@@ -132,6 +132,13 @@ public struct RootView: View {
                     onToggleFavorite: { id in
                         viewModel.toggleFavorite(entryID: id)
                     },
+                    bulkActions: EntryBulkActions(
+                        move: { ids, groupPath in try await viewModel.moveEntries(ids: ids, toGroupPath: groupPath) },
+                        delete: { ids in try await viewModel.deleteEntries(ids: ids) },
+                        restore: { ids in try await viewModel.restoreEntries(ids: ids) },
+                        updateTags: { ids, adding, removing in try await viewModel.updateTags(ids: ids, adding: adding, removing: removing) },
+                        setFavorite: { isFavorite, ids in viewModel.setFavorite(isFavorite, entryIDs: ids) }
+                    ),
                     onEntryViewed: { id in
                         viewModel.markEntryViewed(id)
                     },

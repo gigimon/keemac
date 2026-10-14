@@ -105,7 +105,7 @@ Closes the tags popover or the move sheet first, then clears the selection.
 
 ### Where we differ from the design
 - **Favorites:** the button is hidden for an additional database, which has no favorites.
-- **Recycle bin setting:** the panel follows each database's own recycle bin setting; the design assumes it's on for additional ones.
+- **Recycle bin setting:** like a single entry today, an additional database is treated as having a recycle bin (the loader still deletes permanently if its bin is off).
 - **Focus ring:** follows the focused entry, which ⇧-arrows move, rather than staying on the range anchor.
 - **⌘⌫:** new for the app; it also deletes a single entry.
 
@@ -133,19 +133,20 @@ Closes the tags popover or the move sheet first, then clears the selection.
 ## Step 3: Selection model in the entry list
 - [x] Replace `selectedEntryID` with a selection (`Set<UUID>` plus anchor and focused entry). `selectedEntryID` remains the "primary" entry for the card, HOTP, the browser, etc.
 - [x] Gestures and keys from the decisions; the one-database rule; trimming on list changes; the editor ends multi-selection
-- [ ] Selected-row styling for several rows (accent fill for every selected row done; anchor marker after the design); accessibility (`isSelected` trait done, count announced)
+- [x] Selected-row styling for several rows (accent fill, focus ring on the focused row), list header "N selected"; accessibility (`isSelected` trait, panel title)
 
 ## Step 4: Selection panel and actions
-- [ ] `EntrySelectionPanel`: count, tiles/titles, buttons; bin variant (Restore, Delete Permanently)
-- [ ] Move… group picker (groups of the selection's database)
-- [ ] Tag popover with tri-state checkboxes and "New tag"
-- [ ] Delete confirmation with the count (`ConfirmDialog`)
-- [ ] Context menu on a multi-selected row; Vault menu items (enabled by selection)
-- [ ] Dragging the selection onto a sidebar group (same database: move; other database: transfer)
-- [ ] Accessibility identifiers: `selection.*` (`selection.count`, `selection.move`, `selection.tags`, `selection.favorite`, `selection.delete`, `selection.restore`), `tagPicker.*`, `movePicker.*`
+- [x] `EntrySelectionPanel`: count, tiles/titles, buttons; bin variant (Restore, Delete Permanently)
+- [x] Move… group picker (groups of the selection's database)
+- [x] Tag popover with tri-state checkboxes and "New tag"
+- [x] Delete confirmation with the count (`ConfirmDialog`)
+- [x] Context menu on a multi-selected row; ⌘⌫ deletes the selection or the focused entry (list focused)
+- [ ] Vault menu items for the selection (later: the panel, context menu and ⌘⌫ cover it)
+- [x] Dragging the selection onto a sidebar group (same database: move; other database: transfer); drag preview with a count badge. The "Copy or move to <database>" hover hint is left for later (single entries don't have it either)
+- [x] Accessibility identifiers: `selection.*` (`selection.count`, `selection.move`, `selection.tags`, `selection.favorite`, `selection.delete`, `selection.restore`), `tagPicker.*`, `movePicker.*`
 
 ## Step 5: Localization and docs
-- [ ] ru strings, plurals in `Localizable.stringsdict` ("%lld entries selected", "Move %lld entries…")
+- [x] ru strings, plurals in `Localizable.stringsdict` ("%lld entries selected", "Move %lld entries…")
 - [ ] README features, CLAUDE.md section
 
 ## Step 6: Tests

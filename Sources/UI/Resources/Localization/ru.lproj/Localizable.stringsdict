@@ -834,5 +834,187 @@
       <key>other</key><string>Удалено %lld неиспользуемые иконки</string>
     </dict>
   </dict>
+  <key>%lld entries in Trash</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@ в корзине</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>%lld entries · %@</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@ · %@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Move %lld Entries</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Переместить %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Updated tags on %lld entries</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Теги изменены у %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld записи</string>
+      <key>few</key><string>%lld записей</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записей</string>
+    </dict>
+  </dict>
+  <key>Removed %lld entries from Favorites</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Из избранного убрано: %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Added %lld entries to Favorites</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>В избранное добавлено: %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Moved %lld entries to %@</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Перемещено %#@n@ в «%@»</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Delete %lld entries permanently?</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Удалить %#@n@ навсегда?</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Move %lld entries to Trash?</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Переместить %#@n@ в корзину?</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Deleted %lld entries</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Удалено: %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Moved %lld entries to Trash</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>В корзину перемещено: %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>Restored %lld entries</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>Восстановлено: %#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>%lld Entries</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись</string>
+      <key>few</key><string>%lld записи</string>
+      <key>many</key><string>%lld записей</string>
+      <key>other</key><string>%lld записи</string>
+    </dict>
+  </dict>
+  <key>%lld selected</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Выбрана %lld</string>
+      <key>few</key><string>Выбрано %lld</string>
+      <key>many</key><string>Выбрано %lld</string>
+      <key>other</key><string>Выбрано %lld</string>
+    </dict>
+  </dict>
 </dict>
 </plist>

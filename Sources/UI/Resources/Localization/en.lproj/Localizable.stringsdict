@@ -1138,5 +1138,229 @@
 			<string>Removed %lld unused icons</string>
 		</dict>
 	</dict>
+	<key>%lld entries in Trash</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@ in Trash</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>%lld entries · %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@ · %@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Move %lld Entries</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Move %#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Entry</string>
+			<key>other</key>
+			<string>%lld Entries</string>
+		</dict>
+	</dict>
+	<key>Updated tags on %lld entries</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Updated tags on %#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Removed %lld entries from Favorites</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Removed %#@n@ from Favorites</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Added %lld entries to Favorites</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Added %#@n@ to Favorites</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Moved %lld entries to %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Moved %#@n@ to %@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Delete %lld entries permanently?</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Delete %#@n@ permanently?</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Move %lld entries to Trash?</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Move %#@n@ to Trash?</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Deleted %lld entries</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Deleted %#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Moved %lld entries to Trash</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Moved %#@n@ to Trash</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>Restored %lld entries</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Restored %#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry</string>
+			<key>other</key>
+			<string>%lld entries</string>
+		</dict>
+	</dict>
+	<key>%lld Entries</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Entry</string>
+			<key>other</key>
+			<string>%lld Entries</string>
+		</dict>
+	</dict>
+	<key>%lld selected</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld selected</string>
+			<key>other</key>
+			<string>%lld selected</string>
+		</dict>
+	</dict>
 </dict>
 </plist>
