@@ -1247,3 +1247,4 @@
 "Delete Entries Permanently" = "Безвозвратное удаление записей";
 "Restore Entries" = "Восстановление записей";
 "Edit Tags" = "Изменение тегов";
+"Selected entries belong to different databases." = "Выбранные записи относятся к разным базам.";

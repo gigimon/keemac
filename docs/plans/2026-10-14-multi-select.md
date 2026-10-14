@@ -45,9 +45,9 @@ Stack: Swift 6.1, SwiftUI (custom entry list in `VaultBrowserView`, no `List(sel
 - [x] Single-entry calls keep working (either thin wrappers or unchanged)
 
 ## Step 2: View model
-- [ ] `AppViewModel` bulk methods route to the loader that owns the selection (main or additional database, via `additionalTarget`)
-- [ ] Batch favorites
-- [ ] Transfer of several entries by drag, reusing `makeTransferPayload` / `receiveTransfer` / `trashTransferredEntries` and the conflict sheet
+- [x] `AppViewModel` bulk methods route to the loader that owns the selection (main or additional database, via `additionalTarget`)
+- [x] Batch favorites (main database only, like single favorites: the button is hidden for an additional database)
+- [x] Transfer of several entries by drag, reusing `makeTransferPayload` / `receiveTransfer` / `trashTransferredEntries` and the conflict sheet (`prepareTransfer(entryIDs:)` already takes several entries; the drag is wired in Step 4)
 
 ## Step 3: Selection model in the entry list
 - [ ] Replace `selectedEntryID` with a selection (`Set<UUID>` plus anchor and focused entry). `selectedEntryID` remains the "primary" entry for the card, HOTP, the browser, etc.

@@ -890,6 +890,60 @@ public final class AppViewModel {
         registerUserActivity()
     }
 
+    // MARK: Bulk actions
+
+    /// Moves entries of one database to a group of that database in one undo step.
+    public func moveEntries(ids: [UUID], toGroupPath groupPath: String?) async throws {
+        let pathTarget = additionalTarget(forPath: groupPath)
+        guard ids.allSatisfy({ additionalTarget(forEntry: $0)?.key == pathTarget?.key }) else {
+            throw VaultError.parseFailure(details: L("Use Move to for another database."))
+        }
+        try await editEntries(ids) { editor, localIDs in
+            try await editor.moveEntries(ids: localIDs, toGroupPath: pathTarget?.localPath ?? groupPath)
+        }
+    }
+
+    /// Moves entries of one database to its recycle bin, or deletes them for good when they are in it or the bin is off.
+    public func deleteEntries(ids: [UUID]) async throws {
+        try await editEntries(ids) { try await $0.deleteEntries(ids: $1) }
+    }
+
+    public func restoreEntries(ids: [UUID]) async throws {
+        try await editEntries(ids) { try await $0.restoreEntries(ids: $1) }
+    }
+
+    public func updateTags(ids: [UUID], adding: [String], removing: [String]) async throws {
+        try await editEntries(ids) { try await $0.updateTags(ids: $1, adding: adding, removing: removing) }
+    }
+
+    /// Runs a bulk edit on the database that owns every one of these entries (bulk actions never span databases).
+    private func editEntries(_ ids: [UUID], _ edit: (any VaultEditing, [UUID]) async throws -> LoadedVault) async throws {
+        guard !ids.isEmpty else {
+            return
+        }
+        let targets = ids.map { additionalTarget(forEntry: $0) }
+        let keys = Set(targets.map { $0?.key })
+        guard keys.count == 1, let key = keys.first else {
+            throw VaultError.parseFailure(details: L("Selected entries belong to different databases."))
+        }
+        if let key {
+            let localIDs = targets.compactMap { $0?.localID }
+            try await editAdditional(key) { try await edit($0, localIDs) }
+            return
+        }
+        guard let vaultEditor else {
+            throw VaultError.missingDependency(name: "Vault editing service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: L("Vault is not unlocked."))
+        }
+        let updatedVault = try await edit(vaultEditor, ids)
+        syncEntryCollections(with: updatedVault)
+        loadState = .loaded(updatedVault)
+        await absorbPendingMerge()
+        registerUserActivity()
+    }
+
     public func revertEntry(id: UUID, toHistoryRevisionAt index: Int) async throws {
         if let target = additionalTarget(forEntry: id) {
             try await editAdditional(target.key) { try await $0.revertEntry(id: target.localID, toHistoryRevisionAt: index) }
@@ -1760,6 +1814,20 @@ public final class AppViewModel {
             favoriteEntryIDs.remove(entryID)
         } else {
             favoriteEntryIDs.insert(entryID)
+        }
+        persistFavoriteEntries()
+    }
+
+    /// Adds entries of the main database to the favorites, or removes them; other databases have no favorites.
+    public func setFavorite(_ isFavorite: Bool, entryIDs: [UUID]) {
+        let ids = entryIDs.filter { additionalTarget(forEntry: $0) == nil }
+        guard !ids.isEmpty else {
+            return
+        }
+        if isFavorite {
+            favoriteEntryIDs.formUnion(ids)
+        } else {
+            favoriteEntryIDs.subtract(ids)
         }
         persistFavoriteEntries()
     }
