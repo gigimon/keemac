@@ -36,13 +36,13 @@ Stack: Swift 6.1, SwiftUI (custom entry list in `VaultBrowserView`, no `List(sel
 - [ ] Update the local design copy and check it against these decisions
 
 ## Step 1: Loader batch operations
-- [ ] `VaultEditing`:
+- [x] `VaultEditing`:
   - `moveEntries(ids:toGroupPath:)`
   - `deleteEntries(ids:)` (bin or permanent, like `deleteEntry`)
   - `restoreEntries(ids:)`
   - `updateTags(ids:adding:removing:)`
-- [ ] Each is one `beginUndo`/`endUndo` with new plural undo actions (`moveEntries`, `moveEntriesToTrash`, `deleteEntriesPermanently`, `restoreEntries`, `editTags`) and their localized names
-- [ ] Single-entry calls keep working (either thin wrappers or unchanged)
+- [x] Each is one `beginUndo`/`endUndo` with new plural undo actions (`moveEntries`, `moveEntriesToTrash`, `deleteEntriesPermanently`, `restoreEntries`, `editTags`) and their localized names
+- [x] Single-entry calls keep working (either thin wrappers or unchanged)
 
 ## Step 2: View model
 - [ ] `AppViewModel` bulk methods route to the loader that owns the selection (main or additional database, via `additionalTarget`)

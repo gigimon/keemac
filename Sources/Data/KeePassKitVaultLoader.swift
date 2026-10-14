@@ -857,6 +857,108 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
+    // MARK: Bulk actions
+
+    public func moveEntries(ids: [UUID], toGroupPath groupPath: String?) async throws -> LoadedVault {
+        beginUndo()
+        defer { endUndo(.moveEntries) }
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        guard let targetGroup = Self.findGroup(in: currentSession.tree, path: groupPath) else {
+            throw VaultError.parseFailure(details: "Target group for move was not found.")
+        }
+        let entries = Self.findEntries(in: currentSession.tree, ids: ids).filter { $0.parent !== targetGroup }
+        guard !entries.isEmpty else {
+            return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+        }
+        for entry in entries {
+            entry.move(to: targetGroup)
+        }
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func deleteEntries(ids: [UUID]) async throws -> LoadedVault {
+        var undoAction = VaultUndoAction.deleteEntriesPermanently
+        beginUndo()
+        defer { endUndo(undoAction) }
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        let entries = Self.findEntries(in: currentSession.tree, ids: ids)
+        guard !entries.isEmpty else {
+            return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+        }
+        for entry in entries {
+            // KeePassKit's trashOrRemove moves an entry that is already in the trash back into it.
+            if entry.isTrashed {
+                entry.remove()
+            } else {
+                entry.trashOrRemove()
+                if entry.isTrashed {
+                    undoAction = .moveEntriesToTrash
+                }
+            }
+        }
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func restoreEntries(ids: [UUID]) async throws -> LoadedVault {
+        beginUndo()
+        defer { endUndo(.restoreEntries) }
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        let entries = Self.findEntries(in: currentSession.tree, ids: ids).filter(\.isTrashed)
+        guard !entries.isEmpty else {
+            return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+        }
+        for entry in entries {
+            entry.move(to: Self.resolveRestoreGroup(for: entry, in: currentSession.tree))
+        }
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func updateTags(ids: [UUID], adding: [String], removing: [String]) async throws -> LoadedVault {
+        beginUndo()
+        defer { endUndo(.editTags) }
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        let removed = Set(Self.normalizedTags(from: removing).map { $0.lowercased() })
+        let added = Self.normalizedTags(from: adding)
+        var changed = false
+        for entry in Self.findEntries(in: currentSession.tree, ids: ids) {
+            let current = Self.normalizedTags(from: entry.tags)
+            let tags = Self.normalizedTags(from: current.filter { !removed.contains($0.lowercased()) } + added)
+            guard tags != current else {
+                continue
+            }
+            entry.pushHistory()
+            entry.tags = tags
+            changed = true
+        }
+        guard changed else {
+            return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+        }
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    /// The entries with these IDs that still exist, in the order given.
+    private static func findEntries(in tree: KPKTree, ids: [UUID]) -> [KPKEntry] {
+        var seen = Set<UUID>()
+        return ids.compactMap { id in
+            guard seen.insert(id).inserted else {
+                return nil
+            }
+            return findEntry(in: tree, id: id)
+        }
+    }
+
     public func revertEntry(id: UUID, toHistoryRevisionAt index: Int) async throws -> LoadedVault {
         beginUndo()
         defer { endUndo(.revertEntry) }

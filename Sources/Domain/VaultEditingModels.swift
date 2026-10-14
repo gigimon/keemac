@@ -133,6 +133,11 @@ public enum VaultUndoAction: String, Sendable, Equatable {
     case receiveEntries
     /// Entries moved out to another open database (they went to this database's trash).
     case sendEntries
+    case moveEntries
+    case moveEntriesToTrash
+    case deleteEntriesPermanently
+    case restoreEntries
+    case editTags
 }
 
 public struct VaultUndoState: Sendable, Equatable {

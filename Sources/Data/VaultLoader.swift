@@ -26,6 +26,13 @@ public protocol VaultEditing: Sendable {
     /// Removes these entries from the trash for good in one undo step.
     func emptyTrash(ids: [UUID]) async throws -> LoadedVault
     func restoreEntry(id: UUID) async throws -> LoadedVault
+    /// Bulk versions: one save and one undo step each; IDs that are gone (merged away) are skipped.
+    func moveEntries(ids: [UUID], toGroupPath groupPath: String?) async throws -> LoadedVault
+    /// Moves entries to the recycle bin, or deletes them for good when they are in it or the bin is off.
+    func deleteEntries(ids: [UUID]) async throws -> LoadedVault
+    func restoreEntries(ids: [UUID]) async throws -> LoadedVault
+    /// Adds and removes tags (case-insensitively) on every entry; changed entries get a history version.
+    func updateTags(ids: [UUID], adding: [String], removing: [String]) async throws -> LoadedVault
     func revertEntry(id: UUID, toHistoryRevisionAt index: Int) async throws -> LoadedVault
     /// Nil `autoType` leaves the group's Auto-Type settings as they are (inherit for a new group).
     func createGroup(inParentPath parentPath: String?, title: String, iconID: Int?, autoType: VaultGroupAutoType?) async throws -> LoadedVault

@@ -2094,6 +2094,11 @@ extension VaultUndoAction {
         case .importEntries: return L("Import")
         case .receiveEntries: return L("Add from Another Database")
         case .sendEntries: return L("Move to Another Database")
+        case .moveEntries: return L("Move Entries")
+        case .moveEntriesToTrash: return L("Move Entries to Trash")
+        case .deleteEntriesPermanently: return L("Delete Entries Permanently")
+        case .restoreEntries: return L("Restore Entries")
+        case .editTags: return L("Edit Tags")
         }
     }
 }
