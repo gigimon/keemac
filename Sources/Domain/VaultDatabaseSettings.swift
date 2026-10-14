@@ -30,6 +30,8 @@ public struct VaultDatabaseSettings: Sendable, Equatable {
     public var aesRounds: UInt64
     /// Entry templates group; nil when none is set.
     public var templatesGroupPath: String?
+    /// The cipher that encrypts the file's content; applied together with the key derivation.
+    public var cipher: VaultCipher
 
     public init(
         name: String = "",
@@ -39,7 +41,8 @@ public struct VaultDatabaseSettings: Sendable, Equatable {
         argonMemoryMiB: UInt64 = 64,
         argonParallelism: UInt32 = 2,
         aesRounds: UInt64 = 600_000,
-        templatesGroupPath: String? = nil
+        templatesGroupPath: String? = nil,
+        cipher: VaultCipher = .chacha20
     ) {
         self.name = name
         self.details = details
@@ -49,7 +52,80 @@ public struct VaultDatabaseSettings: Sendable, Equatable {
         self.argonParallelism = argonParallelism
         self.aesRounds = aesRounds
         self.templatesGroupPath = templatesGroupPath
+        self.cipher = cipher
     }
+}
+
+/// How many versions each entry keeps in its history; nil is unlimited.
+public struct VaultHistoryLimits: Sendable, Equatable {
+    public var maxItems: Int?
+    /// Megabytes of history per entry.
+    public var maxSizeMB: Int?
+
+    public init(maxItems: Int? = 10, maxSizeMB: Int? = 6) {
+        self.maxItems = maxItems
+        self.maxSizeMB = maxSizeMB
+    }
+}
+
+/// Which group serves as the recycle bin.
+public enum VaultRecycleBinGroup: Sendable, Equatable {
+    /// The group the database already uses (KeePassKit creates one on the first delete if there is none).
+    case current
+    case existing(path: String)
+    /// A new "Recycle Bin" group under the root.
+    case new
+}
+
+/// What happens to the recycle bin's contents when it is turned off.
+public enum VaultRecycleBinDisposal: Sendable, Equatable {
+    /// Deletes everything in it for good, and the group itself.
+    case empty
+    /// It becomes an ordinary group with everything still in it.
+    case keepAsGroup
+}
+
+/// What the maintenance cards show besides the editable settings.
+public struct VaultMaintenanceStatus: Sendable, Equatable {
+    public var usesRecycleBin: Bool
+    /// The recycle bin group; nil when there is none yet.
+    public var recycleBinPath: String?
+    /// Entries in the recycle bin, including those in its subgroups.
+    public var recycleBinEntryCount: Int
+    public var history: VaultHistoryLimits
+    public var unusedIconCount: Int
+    public var unusedIconBytes: Int
+    public var masterKeyChangedAt: Date?
+
+    public init(
+        usesRecycleBin: Bool = true,
+        recycleBinPath: String? = nil,
+        recycleBinEntryCount: Int = 0,
+        history: VaultHistoryLimits = VaultHistoryLimits(),
+        unusedIconCount: Int = 0,
+        unusedIconBytes: Int = 0,
+        masterKeyChangedAt: Date? = nil
+    ) {
+        self.usesRecycleBin = usesRecycleBin
+        self.recycleBinPath = recycleBinPath
+        self.recycleBinEntryCount = recycleBinEntryCount
+        self.history = history
+        self.unusedIconCount = unusedIconCount
+        self.unusedIconBytes = unusedIconBytes
+        self.masterKeyChangedAt = masterKeyChangedAt
+    }
+}
+
+/// The key file part of a new master key.
+public enum VaultKeyFileChange: Sendable, Equatable {
+    /// The key file the database is open with (or none).
+    case keep
+    /// An existing key file.
+    case use(URL)
+    /// A new key file written to this place when the change is applied.
+    case generate(URL)
+    /// No key file; the password alone opens the database.
+    case remove
 }
 
 public enum VaultCipher: String, Sendable, CaseIterable, Equatable {

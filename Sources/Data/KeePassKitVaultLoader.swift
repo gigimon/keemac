@@ -548,6 +548,18 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return Date().timeIntervalSince(start)
     }
 
+    /// AES-256 when the file names no cipher (KDBX 3.1 and older files default to AES).
+    private static func cipher(for uuid: UUID?) -> VaultCipher {
+        switch uuid {
+        case KPKChaCha20Cipher.uuid():
+            return .chacha20
+        case KPKTwofishCipher.uuid():
+            return .twofish
+        default:
+            return .aes256
+        }
+    }
+
     private static func cipherUUID(for cipher: VaultCipher) -> UUID {
         switch cipher {
         case .aes256:
@@ -902,6 +914,10 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         meta.databaseName = settings.name
         meta.databaseDescription = settings.details
         meta.keyDerivationParameters = try Self.makeKeyDerivationParameters(from: settings)
+        let cipherUUID = Self.cipherUUID(for: settings.cipher)
+        if meta.cipherUUID != cipherUUID {
+            meta.cipherUUID = cipherUUID
+        }
         if let path = settings.templatesGroupPath, let group = Self.findGroup(in: currentSession.tree, path: path) {
             meta.entryTemplatesGroupUuid = group.uuid
         } else {
@@ -910,6 +926,173 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
 
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func changeMasterKey(
+        currentPassword: String,
+        currentKeyFileURL: URL?,
+        newPassword: String?,
+        keyFile: VaultKeyFileChange
+    ) async throws -> URL? {
+        guard let currentSession = session else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        guard !currentPassword.isEmpty || currentKeyFileURL != nil,
+              let currentKey = try? makeCompositeKey(masterPassword: currentPassword, keyFileURL: currentKeyFileURL),
+              currentSession.key.isEqual(to: currentKey) else {
+            throw VaultError.wrongCurrentPassword
+        }
+
+        let password = newPassword.flatMap { $0.isEmpty ? nil : $0 } ?? currentPassword
+        let keyFileURL: URL?
+        switch keyFile {
+        case .keep:
+            keyFileURL = currentKeyFileURL
+        case .use(let url), .generate(let url):
+            keyFileURL = url
+        case .remove:
+            keyFileURL = nil
+        }
+        guard !password.isEmpty || keyFileURL != nil else {
+            throw VaultError.emptyMasterKey
+        }
+
+        var generated: URL?
+        if case .generate(let url) = keyFile {
+            try Self.generateKeyFile(at: url)
+            generated = url
+        }
+        do {
+            try await changeMasterKey(newPassword: password, keyFileURL: keyFileURL)
+        } catch {
+            if let generated {
+                try? FileManager.default.removeItem(at: generated)
+            }
+            throw error
+        }
+        return keyFileURL
+    }
+
+    public func maintenanceStatus() async throws -> VaultMaintenanceStatus {
+        guard let currentSession = session, let meta = currentSession.tree.metaData else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        let tree = currentSession.tree
+        let bin = meta.useTrash ? tree.trash : nil
+        let unused = Self.unusedCustomIcons(in: tree)
+        return VaultMaintenanceStatus(
+            usesRecycleBin: meta.useTrash,
+            recycleBinPath: bin?.breadcrumb,
+            recycleBinEntryCount: bin.map { Self.descendantEntries(of: $0).count } ?? 0,
+            history: Self.historyLimits(of: meta),
+            unusedIconCount: unused.count,
+            unusedIconBytes: unused.reduce(0) { $0 + ($1.encodedString?.count ?? 0) * 3 / 4 },
+            masterKeyChangedAt: Self.knownDate(meta.masterKeyChanged)
+        )
+    }
+
+    public func updateRecycleBin(enabled: Bool, group: VaultRecycleBinGroup, disposal: VaultRecycleBinDisposal?) async throws -> LoadedVault {
+        guard let currentSession = session, let meta = currentSession.tree.metaData else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        let tree = currentSession.tree
+        if enabled {
+            meta.useTrash = true
+            switch group {
+            case .current:
+                break
+            case .existing(let path):
+                guard let target = Self.findGroup(in: tree, path: path), target !== tree.root, !target.isTrashed else {
+                    throw VaultError.parseFailure(details: "Recycle bin group was not found.")
+                }
+                meta.trashUuid = target.uuid
+            case .new:
+                guard let root = tree.root else {
+                    throw VaultError.parseFailure(details: "Database has no root group.")
+                }
+                let bin = tree.createGroup(root)
+                bin.add(to: root)
+                bin.title = "Recycle Bin"
+                bin.iconId = Int(KPKIconType.trash.rawValue)
+                bin.isSearchEnabled = .NO
+                bin.isAutoTypeEnabled = .NO
+                meta.trashUuid = bin.uuid
+            }
+        } else {
+            if disposal == .empty, meta.useTrash, let bin = tree.trash {
+                bin.remove()
+                // Undo steps may point at entries that no longer exist.
+                undoStack.removeAllActions()
+            }
+            meta.useTrash = false
+            // KeePassKit tells the bin by its UUID even when the bin is off; forgetting it shows the group.
+            meta.trashUuid = Self.nullUUID
+        }
+        try save(session: currentSession)
+        return Self.mapTree(tree, fileURL: currentSession.fileURL)
+    }
+
+    public func updateHistoryLimits(_ limits: VaultHistoryLimits) async throws -> LoadedVault {
+        guard let currentSession = session, let meta = currentSession.tree.metaData else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        // KeePass reads -1 as unlimited, KeePassKit as "history off": the largest Int32 works for both.
+        meta.historyMaxItems = limits.maxItems.map { max($0, 1) } ?? Self.unlimitedHistory
+        meta.historyMaxSize = limits.maxSizeMB.map { max($0, 1) * 1024 * 1024 } ?? Self.unlimitedHistory
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    public func removeUnusedCustomIcons() async throws -> LoadedVault {
+        guard let currentSession = session, let meta = currentSession.tree.metaData else {
+            throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
+        }
+        let unused = Self.unusedCustomIcons(in: currentSession.tree)
+        guard !unused.isEmpty else {
+            return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+        }
+        for icon in unused {
+            meta.removeCustomIcon(icon)
+        }
+        // Undoing an older edit could point an entry at a removed icon.
+        undoStack.removeAllActions()
+        try save(session: currentSession)
+        return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
+    }
+
+    private static let unlimitedHistory = Int(Int32.max)
+    private static let nullUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
+    /// -1 (KeePass) and anything from `Int32.max` up mean unlimited.
+    static func historyLimits(of meta: KPKMetaData) -> VaultHistoryLimits {
+        let items = meta.historyMaxItems
+        let size = meta.historyMaxSize
+        return VaultHistoryLimits(
+            maxItems: items < 0 || items >= unlimitedHistory ? nil : items,
+            maxSizeMB: size < 0 || size >= unlimitedHistory ? nil : max(Int((Double(size) / 1_048_576).rounded()), 1)
+        )
+    }
+
+    /// Icons that no group, entry or history version points to.
+    private static func unusedCustomIcons(in tree: KPKTree) -> [KPKIcon] {
+        guard let meta = tree.metaData else {
+            return []
+        }
+        var used = Set<UUID>()
+        let groups = [tree.root].compactMap { $0 } + tree.allGroups
+        for group in groups {
+            if let id = group.iconUUID {
+                used.insert(id)
+            }
+        }
+        for entry in tree.allEntries {
+            for version in [entry] + entry.history {
+                if let id = version.iconUUID {
+                    used.insert(id)
+                }
+            }
+        }
+        return meta.customIcons.filter { !used.contains($0.uuid) }
     }
 
     public func changeMasterKey(newPassword: String, keyFileURL: URL?) async throws {
@@ -1877,7 +2060,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         var settings = VaultDatabaseSettings(
             name: meta.databaseName ?? "",
             details: meta.databaseDescription ?? "",
-            templatesGroupPath: templatesGroup(in: tree)?.breadcrumb
+            templatesGroupPath: templatesGroup(in: tree)?.breadcrumb,
+            cipher: cipher(for: meta.cipherUUID)
         )
 
         let parameters = meta.keyDerivationParameters ?? [:]
@@ -2085,7 +2269,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
                 masterKeyChangeRecommendationDays: positiveDays(tree.metaData?.masterKeyChangeRecommendationInterval),
                 masterKeyChangeEnforcementDays: positiveDays(tree.metaData?.masterKeyChangeEnforcementInterval),
                 supportsEntryTypes: supportsEntryTypes(tree),
-                templatesGroupPath: templatesGroup(in: tree)?.breadcrumb
+                templatesGroupPath: templatesGroup(in: tree)?.breadcrumb,
+                usesRecycleBin: tree.metaData?.useTrash ?? true
             ),
             groups: groups,
             entries: entries

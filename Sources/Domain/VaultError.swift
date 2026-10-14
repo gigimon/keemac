@@ -7,6 +7,10 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
     case fileReadFailure(path: String? = nil)
     case missingDependency(name: String)
     case unknown(details: String? = nil)
+    /// Changing the master key: the current password (with the current key file) doesn't open the database.
+    case wrongCurrentPassword
+    /// A master key needs a password, a key file or both.
+    case emptyMasterKey
 
     public var errorDescription: String? {
         switch self {
@@ -22,6 +26,10 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
             return L("Required dependency is not configured: \(name).")
         case .unknown(let details):
             return details.map { L("Unexpected vault error: \($0)") } ?? L("Unexpected vault error.")
+        case .wrongCurrentPassword:
+            return L("The current password is wrong.")
+        case .emptyMasterKey:
+            return L("Set a password before removing the key file.")
         }
     }
 }

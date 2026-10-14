@@ -13,6 +13,8 @@ public struct VaultSummary: Equatable, Sendable {
     public let supportsEntryTypes: Bool
     /// The database's entry templates group, if one is set.
     public let templatesGroupPath: String?
+    /// Deleting moves entries to the recycle bin; off means deleting is permanent.
+    public let usesRecycleBin: Bool
 
     public init(
         fileName: String,
@@ -22,7 +24,8 @@ public struct VaultSummary: Equatable, Sendable {
         masterKeyChangeRecommendationDays: Int? = nil,
         masterKeyChangeEnforcementDays: Int? = nil,
         supportsEntryTypes: Bool = false,
-        templatesGroupPath: String? = nil
+        templatesGroupPath: String? = nil,
+        usesRecycleBin: Bool = true
     ) {
         self.fileName = fileName
         self.groupCount = groupCount
@@ -32,6 +35,7 @@ public struct VaultSummary: Equatable, Sendable {
         self.masterKeyChangeEnforcementDays = masterKeyChangeEnforcementDays
         self.supportsEntryTypes = supportsEntryTypes
         self.templatesGroupPath = templatesGroupPath
+        self.usesRecycleBin = usesRecycleBin
     }
 }
 

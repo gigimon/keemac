@@ -15,7 +15,9 @@ Stack: Swift 6.1, SwiftUI, KeePassKit (`KPKMetaData.useTrash` / `trashUuid` / `h
 - Each card keeps its own save button; cipher and KDF are applied together with "Apply Encryption".
 - **Unused icons**: "N unused custom icons" with "Remove…" and a confirmation; icons used by history versions count as used.
 - A generated key file: "Generate…" asks where to save it (save panel); the file is written only when "Change Master Key" is confirmed, right before re-encrypting. Cancel creates nothing.
-- Settings changes aren't undoable (as today); the `.bak` copy keeps the previous file.
+- Settings changes aren't undoable (as today); the `.bak` copy keeps the previous file. Emptying the bin while turning it off and removing icons clear the undo stack.
+- "Unlimited" history is stored as `Int32.max`: KeePass and KeePassXC read -1 as unlimited, but KeePassKit reads -1 as "history off" (and clears history), so -1 from other clients is shown as unlimited and not written by KeeMac.
+- With the bin off, deleting an entry asks "Delete permanently?" instead of "Move to Trash?" (`VaultSummary.usesRecycleBin`).
 
 ## Design details (KeeMac.dc.html, "DB Settings · …", "Change Master Key sheet", dialogs)
 
@@ -37,11 +39,11 @@ Stack: Swift 6.1, SwiftUI, KeePassKit (`KPKMetaData.useTrash` / `trashUuid` / `h
 [x] Claude Design mockups in `KeeMac.dc.html`: Database Settings sheet with the new cards, Change Master Key sheet, disable-recycle-bin dialog, remove-icons confirmation
 
 ## Step 1: Domain and loader
-[ ] `VaultDatabaseSettings`: cipher, recycle bin (enabled, group path), history max items / max size (nil = unlimited)
-[ ] Loader reads/writes them; recycle bin switch with "empty" / "keep as group" handling; new recycle bin group creation
-[ ] Cipher change (re-encrypt on save)
-[ ] `changeMasterKey(currentPassword:newPassword:keyFile:)` with keep / replace / generate / remove; current password verified first
-[ ] Unused custom icons: count and remove (entries, history versions and groups count as users)
+[x] `VaultDatabaseSettings`: cipher, recycle bin (enabled, group path), history max items / max size (nil = unlimited)
+[x] Loader reads/writes them; recycle bin switch with "empty" / "keep as group" handling; new recycle bin group creation
+[x] Cipher change (re-encrypt on save)
+[x] `changeMasterKey(currentPassword:newPassword:keyFile:)` with keep / replace / generate / remove; current password verified first
+[x] Unused custom icons: count and remove (entries, history versions and groups count as users)
 
 ## Step 2: Settings UI
 [ ] Encryption card: segmented cipher and KDF, preset menus for parameters, unlock time estimate

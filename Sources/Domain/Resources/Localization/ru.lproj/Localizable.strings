@@ -11,3 +11,5 @@
 "Missing } in sequence" = "В последовательности не хватает }";
 "Unexpected } in sequence" = "Лишняя } в последовательности";
 "Unknown command %@" = "Неизвестная команда %@";
+"The current password is wrong." = "Текущий пароль неверен.";
+"Set a password before removing the key file." = "Задайте пароль, прежде чем убрать ключевой файл.";

@@ -80,8 +80,19 @@ public protocol VaultCreating: Sendable {
 
 public protocol VaultDatabaseManaging: Sendable {
     func databaseSettings() async throws -> VaultDatabaseSettings
+    /// Name, description, templates group, cipher and key derivation.
     func updateDatabaseSettings(_ settings: VaultDatabaseSettings) async throws -> LoadedVault
     func changeMasterKey(newPassword: String, keyFileURL: URL?) async throws
+    /// Checks the current key first; returns the key file the database now opens with (nil for none).
+    /// A generated key file is written only when the rest of the change can go ahead.
+    func changeMasterKey(currentPassword: String, currentKeyFileURL: URL?, newPassword: String?, keyFile: VaultKeyFileChange) async throws -> URL?
+    func maintenanceStatus() async throws -> VaultMaintenanceStatus
+    /// Turning the bin off without a disposal keeps its contents as a normal group.
+    func updateRecycleBin(enabled: Bool, group: VaultRecycleBinGroup, disposal: VaultRecycleBinDisposal?) async throws -> LoadedVault
+    /// New limits apply as entries change; existing history isn't trimmed.
+    func updateHistoryLimits(_ limits: VaultHistoryLimits) async throws -> LoadedVault
+    /// Custom icons no entry, history version or group uses.
+    func removeUnusedCustomIcons() async throws -> LoadedVault
 }
 
 /// Data KeePassXC-Browser needs, stored the way KeePassXC stores it.

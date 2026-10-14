@@ -1460,7 +1460,7 @@ public struct VaultBrowserView: View {
 
             Divider()
 
-            Button(L("Move to Trash"), role: .destructive) {
+            Button(vault.summary.usesRecycleBin ? L("Move to Trash") : L("Delete…"), role: .destructive) {
                 confirmMoveToTrash(entry)
             }
         }
@@ -1921,10 +1921,14 @@ public struct VaultBrowserView: View {
     }
 
     private func confirmMoveToTrash(_ entry: VaultEntry) {
+        // Entries of additional databases follow their own database's setting; the summary is the main one's.
+        let isPermanent = !vault.summary.usesRecycleBin && DatabaseScope.key(of: entry.groupPath) == nil
         confirmRequest = ConfirmRequest(
-            title: L("Move “\(entry.title)” to Trash?"),
-            message: L("You can restore it from the Trash until the Trash is emptied."),
-            confirmTitle: L("Move to Trash")
+            title: isPermanent ? L("Delete “\(entry.title)” permanently?") : L("Move “\(entry.title)” to Trash?"),
+            message: isPermanent
+                ? L("The recycle bin is off for this database, so this can't be restored.")
+                : L("You can restore it from the Trash until the Trash is emptied."),
+            confirmTitle: isPermanent ? L("Delete Permanently") : L("Move to Trash")
         ) {
             confirmRequest = nil
             let entries = filteredEntries
