@@ -136,7 +136,7 @@ public struct DatabaseSettingsView: View {
         }
         .animation(.easeOut(duration: 0.15), value: confirmRequest?.id)
         .sheet(isPresented: $showsChangeMasterKey) {
-            ChangeMasterKeySheet(viewModel: viewModel, hasPassword: status?.hasPassword ?? true) { generatedFile in
+            ChangeMasterKeySheet(viewModel: viewModel, hasPassword: status?.hasPassword ?? true, hardwareKey: status?.hardwareKey) { generatedFile in
                 showToast(generatedFile.map { L("Master key changed · \($0) created") } ?? L("Master key changed"))
                 Task { await reloadStatus() }
             }
@@ -593,6 +593,15 @@ public struct DatabaseSettingsView: View {
                     .truncationMode(.middle)
                     .accessibilityIdentifier("dbSettings.keyFile")
             }
+            row(L("Hardware key")) {
+                Text(status?.hardwareKey?.shortLabel ?? L("None"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(KM.textSecondary)
+                    .accessibilityIdentifier("dbSettings.hardwareKey")
+            }
+            if status?.hardwareKey != nil {
+                hardwareKeyTouchIDRow
+            }
             row(L("Last changed")) {
                 Text(status?.masterKeyChangedAt.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) } ?? "—")
                     .font(.system(size: 12))
@@ -607,6 +616,37 @@ public struct DatabaseSettingsView: View {
                 .accessibilityIdentifier("dbSettings.changeMasterKey")
             }
         }
+    }
+
+    private var hardwareKeyTouchIDRow: some View {
+        let touchIDOn = viewModel.touchIDEnabledForSelectedVault
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Unlock with Touch ID without the hardware key"))
+                    .font(.system(size: 13))
+                Text(L("Your YubiKey response is stored in the keychain on this Mac. Off: the YubiKey is required every time."))
+                    .font(.system(size: 11))
+                    .foregroundStyle(KM.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !touchIDOn {
+                    Label(L("Touch ID is off for this database. Turn it on in Settings → Security."), systemImage: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(KM.textSecondary)
+                        .padding(.top, 2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            toggle(Binding(
+                get: { touchIDOn && viewModel.touchIDSkipsHardwareKeyForSelectedVault },
+                set: { skips in Task { await viewModel.setTouchIDSkipsHardwareKey(skips) } }
+            ))
+            .disabled(!touchIDOn)
+            .accessibilityIdentifier("dbSettings.hardwareKeyTouchID")
+        }
+        .opacity(touchIDOn ? 1 : 0.6)
+        .padding(.leading, 28)
+        .padding(.trailing, 14)
+        .padding(.vertical, 8)
     }
 
     // MARK: Maintenance

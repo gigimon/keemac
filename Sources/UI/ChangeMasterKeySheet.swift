@@ -9,6 +9,8 @@ struct ChangeMasterKeySheet: View {
     @Bindable var viewModel: AppViewModel
     /// The current master key includes a password.
     let hasPassword: Bool
+    /// The hardware key the current master key includes.
+    var hardwareKey: VaultHardwareKey?
     /// Called after the change with the name of a generated key file, if one was created.
     let onChanged: (String?) -> Void
 
@@ -21,6 +23,14 @@ struct ChangeMasterKeySheet: View {
         case remove
     }
 
+    private enum HardwareKeyMode: Hashable {
+        /// Keep the current one, or stay without one ("None").
+        case keep
+        /// Pick another one, or add one ("Add").
+        case choose
+        case remove
+    }
+
     @State private var currentPassword = ""
     @State private var newPassword = ""
     @State private var confirmPassword = ""
@@ -28,6 +38,8 @@ struct ChangeMasterKeySheet: View {
     @State private var mode: KeyFileMode = .keep
     /// The file picked with Choose…, or where Generate… will write the new one.
     @State private var keyFileURL: URL?
+    @State private var hardwareMode: HardwareKeyMode = .keep
+    @State private var chosenHardwareKey: VaultHardwareKey?
     @State private var currentPasswordError: String?
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -37,19 +49,38 @@ struct ChangeMasterKeySheet: View {
         !confirmPassword.isEmpty && newPassword != confirmPassword
     }
 
-    /// Removing the key file leaves only a password, so there must be one.
+    /// The new master key keeps a hardware key.
+    private var keepsHardwareKey: Bool {
+        switch hardwareMode {
+        case .keep:
+            return hardwareKey != nil
+        case .choose:
+            return true
+        case .remove:
+            return false
+        }
+    }
+
+    /// Removing the key file leaves only a password (and maybe a hardware key), so there must be one.
     private var removeNeedsPassword: Bool {
-        mode == .remove && !hasPassword && newPassword.isEmpty
+        mode == .remove && !hasPassword && newPassword.isEmpty && !keepsHardwareKey
+    }
+
+    /// Removing the hardware key mustn't leave the database without any key.
+    private var removeHardwareKeyLeavesNoKey: Bool {
+        hardwareMode == .remove && !hasPassword && newPassword.isEmpty
+            && (mode == .remove || (mode == .keep && viewModel.selectedKeyFileURL == nil))
     }
 
     private var changesNothing: Bool {
-        newPassword.isEmpty && mode == .keep
+        newPassword.isEmpty && mode == .keep && hardwareMode == .keep
     }
 
     private var canSubmit: Bool {
-        !isSaving && !mismatch && !removeNeedsPassword && !changesNothing
+        !isSaving && !mismatch && !removeNeedsPassword && !removeHardwareKeyLeavesNoKey && !changesNothing
             && (newPassword.isEmpty || newPassword == confirmPassword)
             && (mode == .keep || mode == .remove || keyFileURL != nil)
+            && (hardwareMode != .choose || chosenHardwareKey != nil)
     }
 
     var body: some View {
@@ -166,6 +197,23 @@ struct ChangeMasterKeySheet: View {
                         keyFileDetails
                     }
                 }
+
+                field(L("Hardware key")) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        KMSegmentedControl(
+                            options: hardwareKey == nil
+                                ? [(HardwareKeyMode.keep, L("hardwareKey.none", default: "None")), (HardwareKeyMode.choose, L("hardwareKey.add", default: "Add"))]
+                                : [
+                                    (HardwareKeyMode.keep, L("keyFile.keep", default: "Keep")),
+                                    (HardwareKeyMode.choose, L("hardwareKey.choose", default: "Choose")),
+                                    (HardwareKeyMode.remove, L("Remove"))
+                                ],
+                            selection: Binding(get: { hardwareMode }, set: { selectHardwareMode($0) }),
+                            identifierPrefix: "changeKey.hardwareKey"
+                        )
+                        hardwareKeyDetails
+                    }
+                }
             }
             .padding(.top, 18)
 
@@ -267,6 +315,53 @@ struct ChangeMasterKeySheet: View {
         }
     }
 
+    @ViewBuilder
+    private var hardwareKeyDetails: some View {
+        switch hardwareMode {
+        case .keep:
+            Text(hardwareKey.map { L("Keeps \($0.shortLabel).") } ?? L("No hardware key."))
+                .font(.system(size: 11))
+                .foregroundStyle(KM.textSecondary)
+        case .choose:
+            VStack(alignment: .leading, spacing: 6) {
+                HardwareKeyPicker(
+                    selected: chosenHardwareKey,
+                    connected: viewModel.connectedHardwareKeys,
+                    isScanning: viewModel.isScanningHardwareKeys,
+                    height: 34,
+                    cornerRadius: 8,
+                    alwaysExpanded: true,
+                    isDisabled: isSaving,
+                    identifierPrefix: "changeKey.hardwareKey",
+                    onSelect: { chosenHardwareKey = $0 },
+                    onRefresh: { Task { await viewModel.refreshHardwareKeys() } }
+                )
+                Label(L("Make sure you have a backup YubiKey programmed with the same secret, or another way to unlock."), systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(KM.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .remove:
+            if removeHardwareKeyLeavesNoKey {
+                Label(L("Set a password before removing the hardware key."), systemImage: "exclamationmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(KM.danger)
+            } else {
+                Text(L("The database will open without the hardware key."))
+                    .font(.system(size: 11))
+                    .foregroundStyle(KM.textSecondary)
+            }
+        }
+    }
+
+    private func selectHardwareMode(_ newMode: HardwareKeyMode) {
+        hardwareMode = newMode
+        chosenHardwareKey = nil
+        if newMode == .choose {
+            Task { await viewModel.refreshHardwareKeys() }
+        }
+    }
+
     private func field<Content: View>(_ label: String?, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(label ?? "")
@@ -334,7 +429,7 @@ struct ChangeMasterKeySheet: View {
         guard canSubmit else {
             return
         }
-        guard !currentPassword.isEmpty || viewModel.selectedKeyFileURL != nil else {
+        guard !currentPassword.isEmpty || viewModel.selectedKeyFileURL != nil || hardwareKey != nil else {
             currentPasswordError = L("Enter the current password.")
             return
         }
@@ -355,13 +450,30 @@ struct ChangeMasterKeySheet: View {
         isSaving = true
         errorMessage = nil
         do {
-            try await viewModel.changeMasterKey(currentPassword: currentPassword, newPassword: newPassword, keyFile: change)
+            let hardwareChange: VaultHardwareKeyChange
+            switch hardwareMode {
+            case .keep:
+                hardwareChange = .keep
+            case .choose:
+                guard let chosenHardwareKey else { return }
+                hardwareChange = .use(chosenHardwareKey)
+            case .remove:
+                hardwareChange = .remove
+            }
+            try await viewModel.changeMasterKey(
+                currentPassword: currentPassword,
+                newPassword: newPassword,
+                keyFile: change,
+                hardwareKey: hardwareChange
+            )
             isSaving = false
             onChanged(mode == .generate ? keyFileURL?.lastPathComponent : nil)
             dismiss()
         } catch VaultError.wrongCurrentPassword {
             isSaving = false
             currentPasswordError = VaultError.wrongCurrentPassword.errorDescription
+        } catch VaultError.hardwareKeyCancelled {
+            isSaving = false
         } catch {
             isSaving = false
             errorMessage = (error as? LocalizedError)?.errorDescription ?? L("Operation failed.")

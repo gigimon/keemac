@@ -69,6 +69,7 @@ struct NewDatabaseView: View {
     @State private var confirmation = ""
     @State private var revealPassword = false
     @State private var keyFileURL: URL?
+    @State private var hardwareKey: VaultHardwareKey?
     @State private var preset: Preset = .recommended
     @State private var format: Format = .kdbx4
     @State private var cipher: VaultCipher = .chacha20
@@ -421,6 +422,31 @@ struct NewDatabaseView: View {
                 }
                 .padding(.trailing, 36)
             }
+
+            row(L("Hardware key"), alignTop: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HardwareKeyPicker(
+                        selected: hardwareKey,
+                        connected: viewModel.connectedHardwareKeys,
+                        isScanning: viewModel.isScanningHardwareKeys,
+                        height: 34,
+                        cornerRadius: 8,
+                        identifierPrefix: "newDatabase.hardwareKey",
+                        onSelect: { key in
+                            hardwareKey = key
+                            if key != nil {
+                                setFormat(.kdbx4)
+                            }
+                        },
+                        onRefresh: { Task { await viewModel.refreshHardwareKeys() } }
+                    )
+                    Text(L("The database will only open with this YubiKey. Compatible with KeePassXC."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(KM.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.trailing, 36)
+            }
         }
     }
 
@@ -705,7 +731,8 @@ struct NewDatabaseView: View {
             cipher = .chacha20
             kdf = .argon2id
         case .compatible:
-            format = .kdbx31
+            // KeePassXC's challenge-response scheme needs KDBX 4.
+            format = hardwareKey == nil ? .kdbx31 : .kdbx4
             cipher = .aes256
             kdf = .aes
         case .custom:
@@ -714,7 +741,7 @@ struct NewDatabaseView: View {
     }
 
     private func setFormat(_ newFormat: Format) {
-        format = newFormat
+        format = hardwareKey == nil ? newFormat : .kdbx4
         if !availableCiphers.contains(cipher) {
             cipher = .aes256
         }
@@ -768,7 +795,7 @@ struct NewDatabaseView: View {
             }
             step = .masterKey
         case .masterKey:
-            guard !password.isEmpty || keyFileURL != nil else {
+            guard !password.isEmpty || keyFileURL != nil || hardwareKey != nil else {
                 errorMessage = L("Set a password, a key file, or both.")
                 return
             }
@@ -794,6 +821,7 @@ struct NewDatabaseView: View {
                 details: details.trimmingCharacters(in: .whitespacesAndNewlines),
                 masterPassword: password,
                 keyFileURL: keyFileURL,
+                hardwareKey: hardwareKey,
                 useTrash: useTrash,
                 historyMaxItems: historyMaxItems,
                 cipher: cipher,
@@ -816,7 +844,11 @@ struct NewDatabaseView: View {
                 password = ""
                 confirmation = ""
             } catch {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                if case VaultError.hardwareKeyCancelled = error {
+                    errorMessage = nil
+                } else {
+                    errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
             }
             isCreating = false
         }

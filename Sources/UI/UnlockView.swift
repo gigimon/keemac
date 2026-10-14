@@ -74,6 +74,17 @@ struct UnlockView: View {
                 keyFileRow
                     .padding(.top, 8)
 
+                HardwareKeyPicker(
+                    selected: viewModel.selectedHardwareKey,
+                    connected: viewModel.connectedHardwareKeys,
+                    isScanning: viewModel.isScanningHardwareKeys,
+                    isDisabled: isLoading,
+                    identifierPrefix: "unlock.hardwareKey",
+                    onSelect: { viewModel.selectHardwareKey($0) },
+                    onRefresh: { Task { await viewModel.refreshHardwareKeys() } }
+                )
+                .padding(.top, 8)
+
                 if isError, let statusMessage, !statusMessage.isEmpty {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.circle.fill")
@@ -114,7 +125,14 @@ struct UnlockView: View {
                             Image(systemName: "touchid")
                                 .font(.system(size: 17))
                                 .foregroundStyle(KM.touchID)
-                            Text(L("Unlock with Touch ID"))
+                            VStack(spacing: 0) {
+                                Text(L("Unlock with Touch ID"))
+                                if viewModel.selectedHardwareKey != nil && !viewModel.touchIDSkipsHardwareKeyForSelectedVault {
+                                    Text(L("Touch ID + YubiKey"))
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(KM.textSecondary)
+                                }
+                            }
                         }
                     }
                     .buttonStyle(KMButtonStyle(kind: .secondary, height: 38, fullWidth: true, fontSize: 14))
@@ -154,6 +172,9 @@ struct UnlockView: View {
             fileInfo = nil
             guard let url = viewModel.selectedVaultURL else {
                 return
+            }
+            if viewModel.selectedHardwareKey != nil {
+                await viewModel.refreshHardwareKeys()
             }
             fileInfo = await Task.detached(priority: .utility) {
                 KDBXHeaderReader.read(from: url)
@@ -385,7 +406,7 @@ struct UnlockView: View {
 
     private var canUnlock: Bool {
         viewModel.selectedVaultURL != nil
-            && (!password.isEmpty || viewModel.selectedKeyFileURL != nil)
+            && (!password.isEmpty || viewModel.selectedKeyFileURL != nil || viewModel.selectedHardwareKey != nil)
             && !isLoading
     }
 
