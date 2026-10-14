@@ -1555,6 +1555,7 @@ public struct VaultBrowserView: View {
                         previousGroupDisplay: externalChanges[entry.id]?.previousGroupPath.map { GroupPathFormatter.display($0, rootPath: rootPath) },
                         isBusy: isPerformingMutation,
                         onToggleFavorite: { onToggleFavorite(entry.id) },
+                        usesRecycleBin: vault.summary.usesRecycleBin || DatabaseScope.key(of: entry.groupPath) != nil,
                         onMoveToTrash: { confirmMoveToTrash(entry) },
                         onEdit: { startEditing(entry) },
                         onRestore: {

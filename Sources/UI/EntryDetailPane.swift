@@ -16,6 +16,8 @@ struct EntryDetailPane: View {
     var previousGroupDisplay: String? = nil
     let isBusy: Bool
     let onToggleFavorite: () -> Void
+    /// Off means the trash button deletes for good.
+    var usesRecycleBin = true
     let onMoveToTrash: () -> Void
     let onEdit: () -> Void
     let onRestore: () -> Void
@@ -390,7 +392,7 @@ struct EntryDetailPane: View {
                             .font(.system(size: 14, weight: .medium))
                     }
                     .buttonStyle(KMIconButtonStyle(size: 32, cornerRadius: 16, tint: KM.textPrimary, filled: true))
-                    .iconHelp(L("Move to Trash"))
+                    .iconHelp(usesRecycleBin ? L("Move to Trash") : L("Delete Permanently"))
                     .accessibilityIdentifier("detail.moveToTrash")
 
                     Button(L("Edit"), action: onEdit)

@@ -57,5 +57,5 @@ Stack: Swift 6.1, SwiftUI, KeePassKit (`KPKMetaData.useTrash` / `trashUuid` / `h
 [x] README and CLAUDE.md
 
 ## Step 4: Tests
-[ ] Unit: settings round trip (cipher, bin, history), bin off with empty/keep, new bin group, key change (keep/replace/generate/remove, wrong current password), unused icon removal keeps used ones
-[ ] UI: change history limits, toggle recycle bin with the dialog, change master key with a generated key file and unlock with it
+[x] Unit: settings round trip (cipher, bin, history), bin off with empty/keep, new bin group, key change (keep/replace/generate/remove, wrong current password), unused icon removal keeps used ones
+[x] UI: change history limits, toggle recycle bin with the dialog, change master key with a generated key file and unlock with it
