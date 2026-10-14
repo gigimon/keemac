@@ -80,7 +80,11 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
 
         init(keys: [KPKKey], responder: HardwareKeyResponder) {
             self.responder = responder
-            super.init(keys: keys)
+            // `initWithKeys:` calls `-init` on self, which a Swift subclass with stored properties can't inherit.
+            super.init()
+            for key in keys {
+                add(key)
+            }
             keepsKeyDerivationSeed = true
             challengeResponseHandler = { challenge, errorPointer in
                 guard let challenge = challenge as Data? else {
