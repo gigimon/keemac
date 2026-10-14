@@ -57,6 +57,8 @@ jobs:
           ref: ${{ env.RELEASE_REF }}
 
       - name: Run test suite
+        env:
+          LIBDISPATCH_COOPERATIVE_POOL_STRICT: "1"
         run: swift test
 
   ui-tests:

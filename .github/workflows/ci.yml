@@ -33,6 +33,8 @@ jobs:
           swift --version
 
       - name: Run test suite
+        env:
+          LIBDISPATCH_COOPERATIVE_POOL_STRICT: "1"
         run: swift test
 
   package:

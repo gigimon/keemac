@@ -120,9 +120,14 @@ final class SSHAgentControllerTests: XCTestCase {
         entries.first { $0.id == id }
     }
 
-    /// Runs blocking work (processes, socket calls) off the main actor, which answers the agent.
+    /// Runs blocking work (processes, socket calls) off the main actor, which answers the agent, on a GCD
+    /// thread: blocking the cooperative pool starves the agent on machines with few cores (CI runners).
     private func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(operation: work).value
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(with: Result { try work() })
+            }
+        }
     }
 
     private func sshAdd(_ arguments: [String] = ["-L"]) async throws -> (status: Int32, output: String) {
@@ -429,7 +434,7 @@ final class SSHAgentControllerTests: XCTestCase {
         }
         let socket = socketPath!
         let requests = (0..<3).map { _ in
-            Task.detached { try Self.run(["ssh-add", "-L"], environment: ["SSH_AUTH_SOCK": socket]) }
+            Task { try await offMain { try Self.run(["ssh-add", "-L"], environment: ["SSH_AUTH_SOCK": socket]) } }
         }
         var results: [String] = []
         for request in requests {
