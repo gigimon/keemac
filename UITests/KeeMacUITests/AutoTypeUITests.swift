@@ -10,10 +10,7 @@ final class AutoTypeUITests: KeeMacUITestCase {
 
     /// The editor's Auto-Type section sits below the fold; macOS UI tests don't scroll by themselves.
     private func scrollIntoView(_ element: XCUIElement) {
-        let scrollView = app.scrollViews.containing(.any, identifier: "editor.title").firstMatch
-        for _ in 0..<12 where !element.isHittable {
-            scrollView.scroll(byDeltaX: 0, deltaY: -200)
-        }
+        scrollIntoView(element, in: app.scrollViews.containing(.any, identifier: "editor.title").firstMatch)
     }
 
     /// The entry's password, copied from the detail view.

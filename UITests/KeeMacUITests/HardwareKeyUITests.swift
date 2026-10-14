@@ -12,10 +12,7 @@ final class HardwareKeyUITests: KeeMacUITestCase {
     }
 
     private func scrollIntoView(_ target: XCUIElement) {
-        let scrollView = app.scrollViews.containing(.any, identifier: "dbSettings.name").firstMatch
-        for _ in 0..<15 where !target.isHittable {
-            scrollView.scroll(byDeltaX: 0, deltaY: -200)
-        }
+        scrollIntoView(target, in: app.scrollViews.containing(.any, identifier: "dbSettings.name").firstMatch)
     }
 
     /// Adds the software key to the sample database through Change Master Key.

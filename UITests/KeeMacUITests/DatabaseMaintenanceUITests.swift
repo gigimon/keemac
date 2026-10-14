@@ -8,10 +8,7 @@ final class DatabaseMaintenanceUITests: KeeMacUITestCase {
 
     /// The cards below the fold; macOS UI tests don't scroll by themselves.
     private func scrollIntoView(_ target: XCUIElement) {
-        let scrollView = app.scrollViews.containing(.any, identifier: "dbSettings.name").firstMatch
-        for _ in 0..<15 where !target.isHittable {
-            scrollView.scroll(byDeltaX: 0, deltaY: -200)
-        }
+        scrollIntoView(target, in: app.scrollViews.containing(.any, identifier: "dbSettings.name").firstMatch)
     }
 
     private func waitForToast(_ text: String, file: StaticString = #filePath, line: UInt = #line) {

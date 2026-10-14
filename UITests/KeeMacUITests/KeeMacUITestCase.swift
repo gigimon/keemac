@@ -163,6 +163,26 @@ class KeeMacUITestCase: XCTestCase {
         XCTAssertTrue(waitForDisappearance(window))
     }
 
+    /// Scrolls `target` well clear of the scroll view's and the screen's bottom edge: macOS UI tests don't
+    /// scroll by themselves, and a click near the bottom of the screen can land on an auto-hiding Dock.
+    func scrollIntoView(_ target: XCUIElement, in scrollView: XCUIElement) {
+        let screenBottom = NSScreen.screens.first.map { $0.frame.height - $0.visibleFrame.minY } ?? .greatestFiniteMagnitude
+        let margin: CGFloat = 120
+        var previous: CGRect?
+        for _ in 0..<20 {
+            let frame = target.frame
+            let bottom = min(scrollView.frame.maxY, screenBottom) - margin
+            if target.isHittable, frame.maxY <= bottom {
+                return
+            }
+            if frame == previous {
+                return
+            }
+            previous = frame
+            scrollView.scroll(byDeltaX: 0, deltaY: -100)
+        }
+    }
+
     /// Any element by accessibility identifier, whatever its type.
     func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
