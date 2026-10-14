@@ -168,6 +168,9 @@ class KeeMacUITestCase: XCTestCase {
     func scrollIntoView(_ target: XCUIElement, in scrollView: XCUIElement) {
         let screenBottom = NSScreen.screens.first.map { $0.frame.height - $0.visibleFrame.minY } ?? .greatestFiniteMagnitude
         let margin: CGFloat = 120
+        guard target.waitForExistence(timeout: 5) else {
+            return
+        }
         var previous: CGRect?
         for _ in 0..<20 {
             let frame = target.frame

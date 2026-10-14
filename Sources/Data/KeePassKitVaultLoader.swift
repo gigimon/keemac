@@ -3576,7 +3576,7 @@ private struct MetadataSnapshot {
         if meta.databaseName != databaseName { meta.databaseName = databaseName }
         if meta.databaseDescription != databaseDescription { meta.databaseDescription = databaseDescription }
         if meta.defaultUserName != defaultUserName { meta.defaultUserName = defaultUserName }
-        meta.color = color
+        if meta.color != color { meta.color = color }
         meta.keyDerivationParameters = keyDerivationParameters
         meta.cipherUUID = cipherUUID
         meta.compressionAlgorithm = compressionAlgorithm

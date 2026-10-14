@@ -38,20 +38,21 @@ index 7f8b781..c1df410 100644
    if(forceUpdate || otherIsNewer) {
      self.settingsChanged = otherMetaData.settingsChanged;
 diff --git a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
-index 82bdbb7..828b91b 100644
+index 82bdbb7..4d859c2 100644
 --- a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
 +++ b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
-@@ -213,10 +213,13 @@ - (KPKTree *)tree:(NSError * _Nullable __autoreleasing *)error {
+@@ -213,10 +213,14 @@ - (KPKTree *)tree:(NSError * _Nullable __autoreleasing *)error {
    
    KPKTree *tree = [reader tree:error];
    if(tree) {
 +    /* header values are read, not changed: keep SettingsChanged as the file has it */
++    BOOL updateTiming = tree.metaData.updateTiming;
 +    tree.metaData.updateTiming = NO;
      tree.metaData.keyDerivationParameters = self.mutableKeyDerivationParameters;
      tree.metaData.compressionAlgorithm = self.compressionAlgorithm;
      tree.metaData.cipherUUID = self.cipherUUID;
      tree.metaData.mutableCustomPublicData = self.customPublicData;
-+    tree.metaData.updateTiming = YES;
++    tree.metaData.updateTiming = updateTiming;
      
      if(reader.headerHash && ![self.headerData.SHA256Hash isEqualToData:reader.headerHash]) {
        KPKCreateError(error, KPKErrorKdbxHeaderHashVerificationFailed);
