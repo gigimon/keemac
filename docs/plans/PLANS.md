@@ -40,7 +40,7 @@ Priority: **P1** — expected by most users / parity with KeePassXC & MacPass, *
   - YubiKey HID driver, software emulator for tests
   - Unlock / New Database / Change Master Key with a hardware key, touch panel
   - Per-database option: Touch ID unlocks without the hardware key
-- [ ] **Multi-select and bulk actions** (all four) — plan: [2026-10-14-multi-select.md](2026-10-14-multi-select.md) — select many entries in any list of one database: move, delete / restore, tags, favorite
+- [x] **Multi-select and bulk actions** (all four) — plan: [2026-10-14-multi-select.md](2026-10-14-multi-select.md) — select many entries in any list of one database: move, delete / restore, tags, favorite
   - Design: selection panel, tag popover (tri-state), Move… picker
   - Loader batch operations, one save and one undo step each
   - Selection model (⌘/⇧-click, ⌘A, one database), panel, context menu, drag incl. transfer to another database
