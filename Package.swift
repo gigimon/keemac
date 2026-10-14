@@ -63,6 +63,10 @@ let package = Package(
             name: "SSHAgent",
             dependencies: ["CBcryptPBKDF"]
         ),
+        .target(
+            name: "HardwareKey",
+            dependencies: ["Domain"]
+        ),
         .executableTarget(
             name: "Proxy"
         ),
@@ -77,7 +81,7 @@ let package = Package(
         ),
         .target(
             name: "UI",
-            dependencies: ["Domain", "Data", "BrowserIntegration", "SSHAgent"],
+            dependencies: ["Domain", "Data", "BrowserIntegration", "SSHAgent", "HardwareKey"],
             resources: [
                 .copy("Resources/Licenses"),
                 .copy("Resources/WordLists"),
@@ -97,7 +101,7 @@ let package = Package(
         ),
         .testTarget(
             name: "DataTests",
-            dependencies: ["Data", "Domain", "UI", "BrowserIntegration", "SSHAgent", "Proxy"]
+            dependencies: ["Data", "Domain", "UI", "BrowserIntegration", "SSHAgent", "HardwareKey", "Proxy"]
         )
     ],
     swiftLanguageModes: [.v6]
