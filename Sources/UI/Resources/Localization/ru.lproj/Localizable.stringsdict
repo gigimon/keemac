@@ -836,7 +836,7 @@
   </dict>
   <key>%lld entries in Trash</key>
   <dict>
-    <key>NSStringLocalizedFormatKey</key><string>%#@n@ в корзине</string>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@ в Корзине</string>
     <key>n</key>
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
@@ -888,7 +888,7 @@
   </dict>
   <key>Removed %lld entries from Favorites</key>
   <dict>
-    <key>NSStringLocalizedFormatKey</key><string>Из избранного убрано: %#@n@</string>
+    <key>NSStringLocalizedFormatKey</key><string>Из Избранного убрано: %#@n@</string>
     <key>n</key>
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
@@ -901,7 +901,7 @@
   </dict>
   <key>Added %lld entries to Favorites</key>
   <dict>
-    <key>NSStringLocalizedFormatKey</key><string>В избранное добавлено: %#@n@</string>
+    <key>NSStringLocalizedFormatKey</key><string>В Избранное добавлено: %#@n@</string>
     <key>n</key>
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
@@ -914,15 +914,15 @@
   </dict>
   <key>Moved %lld entries to %@</key>
   <dict>
-    <key>NSStringLocalizedFormatKey</key><string>Перемещено %#@n@ в «%@»</string>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@ в «%@»</string>
     <key>n</key>
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
       <key>NSStringFormatValueTypeKey</key><string>lld</string>
-      <key>one</key><string>%lld запись</string>
-      <key>few</key><string>%lld записи</string>
-      <key>many</key><string>%lld записей</string>
-      <key>other</key><string>%lld записи</string>
+      <key>one</key><string>Перемещена %lld запись</string>
+      <key>few</key><string>Перемещено %lld записи</string>
+      <key>many</key><string>Перемещено %lld записей</string>
+      <key>other</key><string>Перемещено %lld записи</string>
     </dict>
   </dict>
   <key>Delete %lld entries permanently?</key>
@@ -940,7 +940,7 @@
   </dict>
   <key>Move %lld entries to Trash?</key>
   <dict>
-    <key>NSStringLocalizedFormatKey</key><string>Переместить %#@n@ в корзину?</string>
+    <key>NSStringLocalizedFormatKey</key><string>Переместить %#@n@ в Корзину?</string>
     <key>n</key>
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
@@ -966,7 +966,7 @@
   </dict>
   <key>Moved %lld entries to Trash</key>
   <dict>
-    <key>NSStringLocalizedFormatKey</key><string>В корзину перемещено: %#@n@</string>
+    <key>NSStringLocalizedFormatKey</key><string>В Корзину перемещено: %#@n@</string>
     <key>n</key>
     <dict>
       <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>

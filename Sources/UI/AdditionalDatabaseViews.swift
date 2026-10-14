@@ -10,6 +10,7 @@ public struct AdditionalDatabasesContext {
     /// Root group of each unlocked additional database, in the browser's paths.
     public var rootPaths: [String: String] = [:]
     public var supportsEntryTypes: [String: Bool] = [:]
+    public var usesRecycleBin: [String: Bool] = [:]
     public var onAdd: @MainActor (URL, String, URL?) async throws -> Void = { _, _, _ in }
     public var onUnlock: @MainActor (String, String, URL?) async throws -> Void = { _, _, _ in }
     public var onLock: @MainActor (String) -> Void = { _ in }

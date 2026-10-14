@@ -895,9 +895,10 @@ public final class AppViewModel {
     /// Moves entries of one database to a group of that database in one undo step.
     public func moveEntries(ids: [UUID], toGroupPath groupPath: String?) async throws {
         let pathTarget = additionalTarget(forPath: groupPath)
-        guard ids.allSatisfy({ additionalTarget(forEntry: $0)?.key == pathTarget?.key }) else {
+        guard let first = ids.first, additionalTarget(forEntry: first)?.key == pathTarget?.key else {
             throw VaultError.parseFailure(details: L("Use Move to for another database."))
         }
+        // editEntries checks that the rest are in the same database.
         try await editEntries(ids) { editor, localIDs in
             try await editor.moveEntries(ids: localIDs, toGroupPath: pathTarget?.localPath ?? groupPath)
         }
@@ -921,7 +922,7 @@ public final class AppViewModel {
         guard !ids.isEmpty else {
             return
         }
-        let targets = ids.map { additionalTarget(forEntry: $0) }
+        let targets = additionalTargets(forEntries: ids)
         let keys = Set(targets.map { $0?.key })
         guard keys.count == 1, let key = keys.first else {
             throw VaultError.parseFailure(details: L("Selected entries belong to different databases."))
@@ -1699,12 +1700,20 @@ public final class AppViewModel {
         await performUndoStep(redo: false)
     }
 
+    /// Undoes the last step of one database (a toast's Undo), whichever database is active now;
+    /// nil is the main database.
+    public func undo(inDatabase key: String?) async {
+        await performUndoStep(redo: false, database: .some(key))
+    }
+
     public func redo() async {
         await performUndoStep(redo: true)
     }
 
-    private func performUndoStep(redo: Bool) async {
-        if let key = activeDatabaseKey, additionalLoaders[key] != nil {
+    /// `database` picks the database; by default the active one (the browser's selection).
+    private func performUndoStep(redo: Bool, database: String?? = nil) async {
+        let target = database ?? activeDatabaseKey
+        if let key = target, additionalLoaders[key] != nil {
             await performAdditionalUndoStep(key, redo: redo)
             return
         }

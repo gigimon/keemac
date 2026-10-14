@@ -155,6 +155,10 @@ extension AppViewModel {
         additionalVaults[key]?.summary.supportsEntryTypes ?? false
     }
 
+    public func additionalUsesRecycleBin(_ key: String) -> Bool {
+        additionalVaults[key]?.summary.usesRecycleBin ?? true
+    }
+
     /// Which database an entry of the browser belongs to; nil is the main one.
     public func databaseKey(ofEntry id: UUID) -> String? {
         additionalTarget(forEntry: id)?.key
@@ -327,6 +331,22 @@ extension AppViewModel {
             }
         }
         return nil
+    }
+
+    /// `additionalTarget(forEntry:)` for many IDs, with one index per database instead of a scan per ID.
+    func additionalTargets(forEntries ids: [UUID]) -> [(key: String, localID: UUID)?] {
+        let indexes = additionalVaults.compactMap { key, vault in
+            additionalSalts[key].map { (key: key, salt: $0, ids: Set(vault.entries.map(\.id))) }
+        }
+        return ids.map { id in
+            for index in indexes {
+                let local = DatabaseScope.mapID(id, salt: index.salt)
+                if index.ids.contains(local) {
+                    return (index.key, local)
+                }
+            }
+            return nil
+        }
     }
 
     func additionalTarget(forPath path: String?) -> (key: String, localPath: String)? {

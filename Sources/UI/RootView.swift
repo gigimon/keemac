@@ -38,6 +38,7 @@ public struct RootView: View {
         for database in viewModel.additionalDatabases where database.state == .unlocked {
             context.rootPaths[database.id] = viewModel.additionalRootPath(database.id)
             context.supportsEntryTypes[database.id] = viewModel.additionalSupportsEntryTypes(database.id)
+            context.usesRecycleBin[database.id] = viewModel.additionalUsesRecycleBin(database.id)
         }
         context.onAdd = { url, password, keyFileURL in
             try await viewModel.addAdditionalDatabase(url: url, password: password, keyFileURL: keyFileURL)
@@ -258,8 +259,13 @@ public struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.exportData)) { _ in
             viewModel.showExport()
         }
-        .onReceive(NotificationCenter.default.publisher(for: AppCommand.undo)) { _ in
-            Task { await viewModel.undo() }
+        .onReceive(NotificationCenter.default.publisher(for: AppCommand.undo)) { notification in
+            // A toast names its database ("" for the main one); the menu and ⌘Z use the active one.
+            if let key = notification.userInfo?[AppCommand.databaseKey] as? String {
+                Task { await viewModel.undo(inDatabase: key.isEmpty ? nil : key) }
+            } else {
+                Task { await viewModel.undo() }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.redo)) { _ in
             Task { await viewModel.redo() }

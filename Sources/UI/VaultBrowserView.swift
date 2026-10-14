@@ -454,6 +454,10 @@ public struct VaultBrowserView: View {
         .onChange(of: searchText) { _, _ in
             ensureValidSelection()
         }
+        // Moves, deletes and merges change the list without changing the entry count.
+        .onChange(of: filteredEntries.map(\.id)) { _, _ in
+            ensureValidSelection()
+        }
         .onChange(of: selectedEntryID) { oldValue, newValue in
             if editingEntryID != newValue {
                 editingEntryID = nil
@@ -1201,7 +1205,7 @@ public struct VaultBrowserView: View {
             .keyboardShortcut("f", modifiers: [.command])
 
             Button("") {
-                if let entry = selectedEntry, !entry.isTrashed, editingEntryID == nil {
+                if !selection.isMultiple, let entry = selectedEntry, !entry.isTrashed, editingEntryID == nil {
                     Task {
                         await performDuplicate(entry.id)
                     }
@@ -1374,6 +1378,10 @@ public struct VaultBrowserView: View {
         .accessibilityAddTraits(isSelected(entry) ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction {
             selectedEntryID = entry.id
+        }
+        .accessibilityAction(named: Text(selection.contains(entry.id) && selection.isMultiple ? L("Remove from Selection") : L("Add to Selection"))) {
+            let entries = filteredEntries
+            selection.toggle(entry.id, in: entries.map(\.id), database: databaseKeys(entries))
         }
         .draggable(dragPayload(for: entry)) {
             dragPreview(for: entry)
@@ -1576,7 +1584,7 @@ public struct VaultBrowserView: View {
             Divider()
 
             Button(
-                vault.summary.usesRecycleBin || DatabaseScope.key(of: entry.groupPath) != nil ? L("Move to Trash") : L("Delete…"),
+                usesRecycleBin(database: DatabaseScope.key(of: entry.groupPath)) ? L("Move to Trash") : L("Delete…"),
                 role: .destructive
             ) {
                 confirmMoveToTrash(entry)
@@ -1675,7 +1683,7 @@ public struct VaultBrowserView: View {
                         previousGroupDisplay: externalChanges[entry.id]?.previousGroupPath.map { GroupPathFormatter.display($0, rootPath: rootPath) },
                         isBusy: isPerformingMutation,
                         onToggleFavorite: { onToggleFavorite(entry.id) },
-                        usesRecycleBin: vault.summary.usesRecycleBin || DatabaseScope.key(of: entry.groupPath) != nil,
+                        usesRecycleBin: usesRecycleBin(database: DatabaseScope.key(of: entry.groupPath)),
                         onMoveToTrash: { confirmMoveToTrash(entry) },
                         onEdit: { startEditing(entry) },
                         onRestore: {
@@ -1887,8 +1895,10 @@ public struct VaultBrowserView: View {
     private func handleClick(on entry: VaultEntry) {
         let entries = filteredEntries
         let flags = NSEvent.modifierFlags
-        if flags.contains(.command) {
-            selection.toggle(entry.id, database: databaseKeys(entries))
+        if flags.contains([.command, .shift]) {
+            selection.extend(to: entry.id, in: entries.map(\.id), database: databaseKeys(entries), adding: true)
+        } else if flags.contains(.command) {
+            selection.toggle(entry.id, in: entries.map(\.id), database: databaseKeys(entries))
         } else if flags.contains(.shift) {
             selection.extend(to: entry.id, in: entries.map(\.id), database: databaseKeys(entries))
         } else {
@@ -1914,31 +1924,34 @@ public struct VaultBrowserView: View {
 
     // MARK: - Bulk actions
 
+    /// The selected entries (list order) and what the panel and actions need about them, worked out once.
+    private struct BulkSelection {
+        let entries: [VaultEntry]
+        let databaseKey: String?
+        var ids: [UUID] { entries.map(\.id) }
+        var isTrash: Bool { !entries.isEmpty && entries.allSatisfy(\.isTrashed) }
+    }
+
+    private var bulkSelection: BulkSelection {
+        let entries = filteredEntries.filter { selection.contains($0.id) }
+        return BulkSelection(entries: entries, databaseKey: entries.first.flatMap { DatabaseScope.key(of: $0.groupPath) })
+    }
+
     /// The selected entries in list order.
     private var selectedEntries: [VaultEntry] {
-        filteredEntries.filter { selection.contains($0.id) }
+        bulkSelection.entries
     }
 
-    private var selectionDatabaseKey: String? {
-        selectedEntries.first.flatMap { DatabaseScope.key(of: $0.groupPath) }
+    private func usesRecycleBin(database key: String?) -> Bool {
+        key.map { additional.usesRecycleBin[$0] ?? true } ?? vault.summary.usesRecycleBin
     }
 
-    private var selectionIsTrash: Bool {
-        let entries = selectedEntries
-        return !entries.isEmpty && entries.allSatisfy(\.isTrashed)
-    }
-
-    /// Like a single entry: additional databases are treated as having a recycle bin.
-    private var selectionUsesRecycleBin: Bool {
-        vault.summary.usesRecycleBin || selectionDatabaseKey != nil
-    }
-
-    private var selectionLocation: EntrySelectionLocation {
-        let name = databaseName(selectionDatabaseKey)
-        if selectionIsTrash {
+    private func location(of bulk: BulkSelection) -> EntrySelectionLocation {
+        let name = databaseName(bulk.databaseKey)
+        if bulk.isTrash {
             return EntrySelectionLocation(databaseName: name, groupSymbol: "trash", groupPath: L("Trash"))
         }
-        let groups = Set(selectedEntries.map(\.groupPath))
+        let groups = Set(bulk.entries.map(\.groupPath))
         guard groups.count == 1, let path = groups.first else {
             return EntrySelectionLocation(databaseName: name, groupSymbol: nil, groupPath: nil)
         }
@@ -1949,25 +1962,35 @@ public struct VaultBrowserView: View {
         vault.entries.filter { !$0.isTrashed && DatabaseScope.key(of: $0.groupPath) == key }.flatMap(\.tags)
     }
 
-    /// The database's root, then its groups one level deeper.
+    /// The database's root, then its groups one level deeper; `subtitle` is the path shown while searching.
     private func moveOptions(forDatabase key: String?) -> [GroupOption] {
         let root = key.flatMap { additional.rootPaths[$0] } ?? rootPath
         let groups = groupOptions(forDatabase: key).map { GroupOption(path: $0.path, title: $0.title, depth: $0.depth + 1) }
         return [GroupOption(path: root, title: databaseName(key), depth: 0)] + groups
     }
 
+    /// The entry to focus once these leave the list: the next one after them, else the one before.
+    private func neighbor(after ids: Set<UUID>) -> UUID? {
+        let entries = filteredEntries
+        guard let last = entries.lastIndex(where: { ids.contains($0.id) }) else {
+            return nil
+        }
+        return entries[(last + 1)...].first { !ids.contains($0.id) }?.id
+            ?? entries[..<last].last { !ids.contains($0.id) }?.id
+    }
+
     private var selectionPanel: some View {
-        let entries = selectedEntries
-        let key = selectionDatabaseKey
+        let bulk = bulkSelection
+        let key = bulk.databaseKey
         return EntrySelectionPanel(
-            entries: entries,
+            entries: bulk.entries,
             supportsTypes: key.map { additional.supportsEntryTypes[$0] ?? false } ?? supportsEntryTypes,
             layout: layout,
-            location: selectionLocation,
-            isTrash: selectionIsTrash,
+            location: location(of: bulk),
+            isTrash: bulk.isTrash,
             showsFavorite: key == nil,
-            allFavorite: entries.allSatisfy { favoriteEntryIDs.contains($0.id) },
-            usesRecycleBin: selectionUsesRecycleBin,
+            allFavorite: bulk.entries.allSatisfy { favoriteEntryIDs.contains($0.id) },
+            usesRecycleBin: usesRecycleBin(database: key),
             isBusy: isPerformingMutation,
             tagEditor: $bulkTagEditor,
             knownTags: tags(ofDatabase: key),
@@ -1980,13 +2003,14 @@ public struct VaultBrowserView: View {
         )
         .sheet(isPresented: $isShowingMoveSheet) {
             MoveToGroupSheet(
-                entryCount: entries.count,
+                entryCount: bulk.entries.count,
                 databaseName: databaseName(key),
                 options: moveOptions(forDatabase: key),
-                currentPaths: Set(entries.filter { !$0.isTrashed }.map(\.groupPath)),
+                currentPaths: Set(bulk.entries.filter { !$0.isTrashed }.map(\.groupPath)),
+                displayPath: displayGroupPath,
                 onMove: { path in
                     isShowingMoveSheet = false
-                    Task { await performBulkMove(ids: entries.map(\.id), to: path) }
+                    Task { await performBulkMove(ids: bulk.ids, to: path) }
                 },
                 onCancel: { isShowingMoveSheet = false }
             )
@@ -1994,8 +2018,8 @@ public struct VaultBrowserView: View {
     }
 
     private func openBulkTags() {
-        let entries = selectedEntries
-        bulkTagEditor = BulkTagEditor(entryTags: entries.map(\.tags), databaseTags: tags(ofDatabase: selectionDatabaseKey))
+        let bulk = bulkSelection
+        bulkTagEditor = BulkTagEditor(entryTags: bulk.entries.map(\.tags), databaseTags: tags(ofDatabase: bulk.databaseKey))
     }
 
     private func performBulkTags(_ editor: BulkTagEditor) async {
@@ -2003,14 +2027,14 @@ public struct VaultBrowserView: View {
         guard !changes.adding.isEmpty || !changes.removing.isEmpty else {
             return
         }
-        let ids = selectedEntries.map(\.id)
-        if await runMutation({ try await bulkActions.updateTags(ids, changes.adding, changes.removing) }) {
-            showUndoToast(L("Updated tags on \(ids.count) entries"))
+        let bulk = bulkSelection
+        if await runMutation({ try await bulkActions.updateTags(bulk.ids, changes.adding, changes.removing) }) {
+            showUndoToast(L("Updated tags on \(bulk.ids.count) entries"), database: .some(bulk.databaseKey))
         }
     }
 
     private func performBulkFavorite() {
-        let ids = selectedEntries.map(\.id)
+        let ids = bulkSelection.ids
         let allFavorite = ids.allSatisfy(favoriteEntryIDs.contains)
         bulkActions.setFavorite(!allFavorite, ids)
         CopyFeedbackCenter.shared.show(
@@ -2030,15 +2054,17 @@ public struct VaultBrowserView: View {
             return
         }
         if await runMutation({ try await bulkActions.move(ids, groupPath) }) {
+            // Entries that left the list are trimmed by the list's onChange.
             selection.collapse()
-            showUndoToast(L("Moved \(ids.count) entries to \(GroupPathFormatter.title(of: groupPath))"))
+            showUndoToast(L("Moved \(ids.count) entries to \(GroupPathFormatter.title(of: groupPath))"), database: .some(sourceKey))
         }
     }
 
     private func confirmBulkDelete() {
-        let entries = selectedEntries
-        let isPermanent = selectionIsTrash || !selectionUsesRecycleBin
-        let count = entries.count
+        let bulk = bulkSelection
+        let isPermanent = bulk.isTrash || !usesRecycleBin(database: bulk.databaseKey)
+        let count = bulk.entries.count
+        let next = neighbor(after: Set(bulk.ids))
         confirmRequest = ConfirmRequest(
             title: isPermanent ? L("Delete \(count) entries permanently?") : L("Move \(count) entries to Trash?"),
             message: isPermanent ? L("This can't be undone.") : L("You can restore them from the Trash."),
@@ -2046,21 +2072,23 @@ public struct VaultBrowserView: View {
         ) {
             confirmRequest = nil
             Task {
-                if await runMutation({ try await bulkActions.delete(entries.map(\.id)) }) {
-                    selectedEntryID = nil
-                    ensureValidSelection()
-                    showUndoToast(isPermanent ? L("Deleted \(count) entries") : L("Moved \(count) entries to Trash"))
+                if await runMutation({ try await bulkActions.delete(bulk.ids) }) {
+                    selectedEntryID = next
+                    showUndoToast(
+                        isPermanent ? L("Deleted \(count) entries") : L("Moved \(count) entries to Trash"),
+                        database: .some(bulk.databaseKey)
+                    )
                 }
             }
         }
     }
 
     private func performBulkRestore() async {
-        let ids = selectedEntries.map(\.id)
-        if await runMutation({ try await bulkActions.restore(ids) }) {
-            selectedEntryID = nil
-            ensureValidSelection()
-            showUndoToast(L("Restored \(ids.count) entries"))
+        let bulk = bulkSelection
+        let next = neighbor(after: Set(bulk.ids))
+        if await runMutation({ try await bulkActions.restore(bulk.ids) }) {
+            selectedEntryID = next
+            showUndoToast(L("Restored \(bulk.ids.count) entries"), database: .some(bulk.databaseKey))
         }
     }
 
@@ -2082,21 +2110,21 @@ public struct VaultBrowserView: View {
 
     @ViewBuilder
     private var bulkContextMenu: some View {
-        let count = selectedEntries.count
-        Text(L("\(count) Entries"))
-        if selectionIsTrash {
+        let bulk = bulkSelection
+        Text(L("\(bulk.entries.count) Entries"))
+        if bulk.isTrash {
             Button(L("Restore")) { Task { await performBulkRestore() } }
             Divider()
             Button(L("Delete Permanently"), role: .destructive) { confirmBulkDelete() }
         } else {
             Button(L("Move to Group…")) { isShowingMoveSheet = true }
             Button(L("Tags…")) { openBulkTags() }
-            if selectionDatabaseKey == nil {
-                let allFavorite = selectedEntries.allSatisfy { favoriteEntryIDs.contains($0.id) }
+            if bulk.databaseKey == nil {
+                let allFavorite = bulk.entries.allSatisfy { favoriteEntryIDs.contains($0.id) }
                 Button(allFavorite ? L("Remove from Favorites") : L("Add to Favorites")) { performBulkFavorite() }
             }
             Divider()
-            Button(selectionUsesRecycleBin ? L("Move to Trash") : L("Delete Permanently"), role: .destructive) { confirmBulkDelete() }
+            Button(usesRecycleBin(database: bulk.databaseKey) ? L("Move to Trash") : L("Delete Permanently"), role: .destructive) { confirmBulkDelete() }
                 .keyboardShortcut(.delete, modifiers: [.command])
         }
     }
@@ -2276,8 +2304,7 @@ public struct VaultBrowserView: View {
     }
 
     private func confirmMoveToTrash(_ entry: VaultEntry) {
-        // Entries of additional databases follow their own database's setting; the summary is the main one's.
-        let isPermanent = !vault.summary.usesRecycleBin && DatabaseScope.key(of: entry.groupPath) == nil
+        let isPermanent = !usesRecycleBin(database: DatabaseScope.key(of: entry.groupPath))
         confirmRequest = ConfirmRequest(
             title: isPermanent ? L("Delete “\(entry.title)” permanently?") : L("Move “\(entry.title)” to Trash?"),
             message: isPermanent
@@ -2429,9 +2456,11 @@ public struct VaultBrowserView: View {
     }
 
     /// A toast with an Undo button; the button undoes the last change in the database (⌘Z).
-    private func showUndoToast(_ message: String) {
+    /// With `database`, Undo goes to that database even if the selection moved to another one since.
+    private func showUndoToast(_ message: String, database: String?? = nil) {
+        let userInfo = database.map { [AppCommand.databaseKey: $0 ?? ""] }
         CopyFeedbackCenter.shared.show(message, style: .success, duration: 5, actionTitle: L("Undo")) {
-            NotificationCenter.default.post(name: AppCommand.undo, object: nil)
+            NotificationCenter.default.post(name: AppCommand.undo, object: nil, userInfo: userInfo)
         }
     }
 

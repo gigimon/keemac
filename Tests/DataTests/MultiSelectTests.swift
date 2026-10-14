@@ -16,13 +16,13 @@ final class EntrySelectionTests: XCTestCase {
         var selection = EntrySelection(focus: ids[0])
         XCTAssertFalse(selection.isMultiple)
 
-        selection.toggle(ids[2], database: database)
+        selection.toggle(ids[2], in: ids, database: database)
         XCTAssertEqual(selection.ids, [ids[0], ids[2]])
         XCTAssertEqual(selection.focus, ids[2])
 
-        selection.toggle(ids[2], database: database)
+        selection.toggle(ids[2], in: ids, database: database)
         XCTAssertEqual(selection.ids, [ids[0]], "⌘-click again removes it")
-        selection.toggle(ids[0], database: database)
+        selection.toggle(ids[0], in: ids, database: database)
         XCTAssertEqual(selection.ids, [ids[0]], "the last entry stays selected")
 
         selection.select(ids[1])
@@ -38,7 +38,7 @@ final class EntrySelectionTests: XCTestCase {
 
     func testSelectionStaysInOneDatabase() {
         var selection = EntrySelection(focus: ids[3])
-        selection.toggle(ids[4], database: database)
+        selection.toggle(ids[4], in: ids, database: database)
         XCTAssertEqual(selection.ids, [ids[4]], "⌘-click in another database starts over there")
 
         selection.select(ids[2])
@@ -49,6 +49,26 @@ final class EntrySelectionTests: XCTestCase {
         selection.selectAll(in: ids, database: database)
         XCTAssertEqual(selection.ids, Set(ids.prefix(4)), "⌘A takes the focused entry's database")
         XCTAssertEqual(selection.focus, ids[1])
+    }
+
+    func testRangeAddsAndFocusMovesToANeighbor() {
+        var selection = EntrySelection(focus: ids[0])
+        selection.toggle(ids[3], in: ids, database: database)
+        selection.extend(to: ids[1], in: ids, database: database, adding: true)
+        XCTAssertEqual(selection.ids, Set(ids[0...3]), "⌘⇧-click adds the range from the anchor to what was selected")
+        XCTAssertEqual(selection.focus, ids[1])
+
+        selection.toggle(ids[1], in: ids, database: database)
+        XCTAssertEqual(selection.focus, ids[2], "the focus goes to the next selected entry")
+    }
+
+    func testRangeContinuesAfterTheAnchorIsTrimmed() {
+        var selection = EntrySelection(focus: ids[0])
+        selection.selectAll(in: Array(ids.prefix(4)), database: database)
+        selection.extend(to: ids[2], in: ids, database: database)
+        XCTAssertTrue(selection.trim(to: Array(ids[1...3])))
+        selection.extend(to: ids[3], in: Array(ids[1...3]), database: database)
+        XCTAssertEqual(selection.ids, [ids[2], ids[3]], "the focus becomes the anchor instead of starting over")
     }
 
     func testTrimKeepsVisibleEntries() {
@@ -203,6 +223,8 @@ final class BulkLoaderTests: XCTestCase {
         XCTAssertEqual(vault.entries.first { $0.title == "Bank" }?.tags, ["shared"], "removal ignores case")
         XCTAssertEqual(vault.entries.first { $0.title == "Shop" }?.tags, ["shared"])
         XCTAssertEqual(mail.history.count, 1, "the previous version goes to history")
+        let modified = try XCTUnwrap(mail.modifiedAt)
+        XCTAssertGreaterThan(modified, try XCTUnwrap(mail.history.first?.modifiedAt), "merges must see the tags as newer")
         let undoState = await loader.undoState()
         XCTAssertEqual(undoState.undoAction, .editTags)
         let reopened = try await reopen()
@@ -280,6 +302,16 @@ final class BulkViewModelTests: XCTestCase {
             XCTFail("a selection spans one database")
         } catch {}
         XCTAssertFalse(model.browserVault?.entries.contains(where: \.isTrashed) ?? true)
+    }
+
+    func testMovingToAnotherDatabasesGroupIsRefused() async throws {
+        let (model, _, key) = try await makeModel()
+        let mainIDs = try XCTUnwrap(model.browserVault?.entries.filter { DatabaseScope.key(of: $0.groupPath) == nil }.map(\.id))
+        let backupRoot = try XCTUnwrap(model.additionalRootPath(key))
+        do {
+            try await model.moveEntries(ids: mainIDs, toGroupPath: backupRoot)
+            XCTFail("moving between databases goes through the transfer sheet")
+        } catch {}
     }
 
     func testFavoritesOnlyForTheMainDatabase() async throws {

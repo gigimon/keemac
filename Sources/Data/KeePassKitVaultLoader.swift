@@ -939,6 +939,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             }
             entry.pushHistory()
             entry.tags = tags
+            // KeePassKit's tags setter doesn't touch the entry, and merges keep the newer version.
+            entry.timeInfo.modificationDate = Date()
             changed = true
         }
         guard changed else {
@@ -948,14 +950,15 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
 
-    /// The entries with these IDs that still exist, in the order given.
+    /// The entries with these IDs that still exist, in the order given (one pass over the tree, for ⌘A on a large database).
     private static func findEntries(in tree: KPKTree, ids: [UUID]) -> [KPKEntry] {
+        let index = Dictionary(tree.allEntries.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<UUID>()
         return ids.compactMap { id in
             guard seen.insert(id).inserted else {
                 return nil
             }
-            return findEntry(in: tree, id: id)
+            return index[id]
         }
     }
 

@@ -1243,7 +1243,7 @@
 "Program Slot %lld with HMAC-SHA1 in YubiKey Manager, or choose another slot." = "Настройте слот %lld на HMAC-SHA1 в YubiKey Manager или выберите другой слот.";
 "Try Again" = "Повторить";
 "Move Entries" = "Перемещение записей";
-"Move Entries to Trash" = "Перемещение записей в корзину";
+"Move Entries to Trash" = "Перемещение записей в Корзину";
 "Delete Entries Permanently" = "Безвозвратное удаление записей";
 "Restore Entries" = "Восстановление записей";
 "Edit Tags" = "Изменение тегов";
@@ -1262,4 +1262,6 @@
 "No groups match" = "Нет подходящих групп";
 "Current" = "Текущая";
 "This can't be undone." = "Это действие нельзя отменить.";
-"You can restore them from the Trash." = "Их можно восстановить из корзины.";
+"You can restore them from the Trash." = "Их можно восстановить из Корзины.";
+"Add to Selection" = "Добавить к выделению";
+"Remove from Selection" = "Убрать из выделения";

@@ -101,6 +101,19 @@ final class MultiSelectUITests: KeeMacUITestCase {
         XCTAssertTrue(entryRow("Jira").exists)
     }
 
+    func testCommandDeleteAndUndoTheSelection() {
+        launchUnlocked()
+        selectWorkEntries()
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: .command)
+        confirm()
+        XCTAssertTrue(waitForDisappearance(entryRow("GitHub")))
+        XCTAssertFalse(entryRow("Jira").exists)
+
+        app.typeKey("z", modifierFlags: .command)
+        XCTAssertTrue(entryRow("GitHub").waitForExistence(timeout: 5), "one undo brings both back")
+        XCTAssertTrue(entryRow("Jira").exists)
+    }
+
     func testTagsPopoverAddsAndSetsMixedTags() {
         launchUnlocked()
         selectWorkEntries()

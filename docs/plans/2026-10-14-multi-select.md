@@ -25,7 +25,7 @@ Decisions (brainstorming, October 2026):
   - Esc goes back to one entry.
   - Opening the editor ends multi-selection.
 - **Batch semantics:** each bulk action is one loader call, so one merge check, one `.bak`, one save and one undo step with a plural action name. Favorites stay app-local (UserDefaults), not an undo step.
-- **Selection upkeep:** when the visible list changes (search text, sidebar selection, sync or merge removing entries), the selection is trimmed to entries still in the list. If one is left, the normal card returns.
+- **Selection upkeep:** switching the sidebar list goes back to one entry, as in the design. When the visible list changes otherwise (search text, moves, deletes, sync or merge), the selection is trimmed to entries still in the list; if one is left, the normal card returns.
 
 Stack: Swift 6.1, SwiftUI (custom entry list in `VaultBrowserView`, no `List(selection:)`), KeePassKit through `KeePassKitVaultLoader`; no new dependencies.
 
@@ -105,7 +105,7 @@ Closes the tags popover or the move sheet first, then clears the selection.
 
 ### Where we differ from the design
 - **Favorites:** the button is hidden for an additional database, which has no favorites.
-- **Recycle bin setting:** like a single entry today, an additional database is treated as having a recycle bin (the loader still deletes permanently if its bin is off).
+- **Recycle bin setting:** every database's own setting decides Move to Trash vs Delete Permanently (now also for single entries of additional databases).
 - **Focus ring:** follows the focused entry, which ⇧-arrows move, rather than staying on the range anchor.
 - **⌘⌫:** new for the app; it also deletes a single entry.
 
@@ -150,18 +150,36 @@ Closes the tags popover or the move sheet first, then clears the selection.
 - [x] README features, CLAUDE.md section
 
 ## Step 6: Tests
-- [ ] Unit:
+- [x] Unit:
   - loader batch operations: one save, one undo step, bin on and off, tags add/remove;
   - view model routing for an additional database;
   - selection trimming
-- [ ] UI tests:
+- [x] UI tests:
   - ⌘-click / ⇧-click / ⌘A;
   - panel actions: move, delete then undo, tags tri-state, favorite;
   - bin restore;
-  - search selection limited to one database
+  - search selection limited to one database (unit tests only: UI tests can't attach an additional database)
 
 ## Step 7: Review
-- [ ] code-reviewer subagent, fix findings
+- [x] code-reviewer subagent, fix findings
+
+## Review fixes (docs/reviews/2026-10-15-branch-feature-multi-select.md)
+- [x] H1: `updateTags` sets the modification date (KeePassKit's tags setter doesn't), so merges keep the new tags
+- [x] H2: a bulk action's Undo toast undoes in that action's database (`AppCommand.undo` with `AppCommand.databaseKey`), not the one focused afterwards
+- [x] M1: the focus after delete/restore goes to the neighbor picked before the change; the list trims on `filteredEntries` id changes
+- [x] M2: `findEntries` indexes the tree once; `additionalTargets(forEntries:)` builds one index per database
+- [x] M3: ru plural "Перемещена 1 запись"
+- [x] M4: `trim` keeps an anchor so ⇧ ranges continue
+- [x] L1–L8:
+  - ⌘⇧-click adds a range;
+  - focus moves to the nearest selected entry;
+  - paths in Move search;
+  - fill token;
+  - panel computes the selection once;
+  - tests (modification date, trim then extend, ⌘⇧, move to another database, ⌘⌫ UI test);
+  - VoiceOver "Add to / Remove from Selection";
+  - ru casing (Корзина, Избранное) like the existing strings.
+- [x] ⌘D does nothing with several entries selected; drag of trashed entries onto a group moves them out of the bin (a restore into that group)
 
 ## Later iteration
 - [ ] Change icon / color for the selection

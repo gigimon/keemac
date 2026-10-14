@@ -35,7 +35,8 @@ struct EntrySelection: Equatable {
     }
 
     /// ⌘-click: adds or removes the entry. An entry of another database starts a new selection.
-    mutating func toggle(_ id: UUID, database: (UUID) -> String?) {
+    /// Removing the focused entry moves the focus to the nearest selected one in `order`.
+    mutating func toggle(_ id: UUID, in order: [UUID], database: (UUID) -> String?) {
         guard let focus, database(id) == database(focus) else {
             select(id)
             return
@@ -46,7 +47,7 @@ struct EntrySelection: Equatable {
             }
             ids.remove(id)
             if focus == id {
-                self.focus = ids.first
+                self.focus = Self.nearest(to: id, in: order, among: ids) ?? ids.first
             }
             if anchor == id {
                 anchor = self.focus
@@ -59,16 +60,26 @@ struct EntrySelection: Equatable {
     }
 
     /// ⇧-click and ⇧-arrow: everything between the anchor and the entry, in list order,
-    /// skipping entries of other databases. The anchor stays.
-    mutating func extend(to id: UUID, in order: [UUID], database: (UUID) -> String?) {
+    /// skipping entries of other databases. The anchor stays. `adding` (⌘⇧-click) keeps what was selected.
+    mutating func extend(to id: UUID, in order: [UUID], database: (UUID) -> String?, adding: Bool = false) {
         guard let anchor, database(id) == database(anchor),
               let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) else {
             select(id)
             return
         }
         let key = database(anchor)
-        ids = Set(order[min(from, to)...max(from, to)].filter { database($0) == key })
+        let range = Set(order[min(from, to)...max(from, to)].filter { database($0) == key })
+        ids = adding ? ids.union(range) : range
         focus = id
+    }
+
+    private static func nearest(to id: UUID, in order: [UUID], among candidates: Set<UUID>) -> UUID? {
+        guard let index = order.firstIndex(of: id) else {
+            return nil
+        }
+        let after = order[(index + 1)...].first(where: candidates.contains)
+        let before = order[..<index].last(where: candidates.contains)
+        return after ?? before
     }
 
     /// ⌘A: every entry in the list of the focused entry's database.
@@ -101,6 +112,8 @@ struct EntrySelection: Equatable {
             anchor = anchor ?? focus
             return focus != nil
         }
+        // A range keeps growing from somewhere when its anchor scrolled out of the list.
+        anchor = anchor ?? focus
         return true
     }
 }

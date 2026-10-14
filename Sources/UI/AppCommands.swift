@@ -1,6 +1,8 @@
 import Foundation
 
 public enum AppCommand {
+    /// `userInfo` key of `undo` naming the database whose step to undo ("" for the main one).
+    public static let databaseKey = "database"
     public static let openVault = Notification.Name("KeeMac.Command.OpenVault")
     public static let newVault = Notification.Name("KeeMac.Command.NewVault")
     public static let selectKeyFile = Notification.Name("KeeMac.Command.SelectKeyFile")

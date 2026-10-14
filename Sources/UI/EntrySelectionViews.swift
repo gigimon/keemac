@@ -219,7 +219,7 @@ private struct SelectionActionButtonStyle: ButtonStyle {
         if layout == .classic {
             return KM.raisedButtonBackground
         }
-        return isDanger ? KM.danger.opacity(0.1) : KM.insetFill.opacity(1.3)
+        return isDanger ? KM.danger.opacity(0.1) : KM.controlFill
     }
 }
 
@@ -399,6 +399,8 @@ struct MoveToGroupSheet: View {
     let options: [GroupOption]
     /// Groups that already hold some of the selected entries.
     let currentPaths: Set<String>
+    /// The group's path for display, shown under its name while searching.
+    let displayPath: (String) -> String
     let onMove: (String) -> Void
     let onCancel: () -> Void
     @State private var query = ""
@@ -501,6 +503,12 @@ struct MoveToGroupSheet: View {
                 Text(option.title)
                     .font(.system(size: 13))
                     .lineLimit(1)
+                if isSearching, option.depth > 1 {
+                    Text(displayPath(option.path))
+                        .font(.system(size: 10))
+                        .foregroundStyle(isTarget ? Color.white.opacity(0.8) : KM.textSecondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 6)
             if currentPaths.contains(option.path) {
@@ -515,7 +523,7 @@ struct MoveToGroupSheet: View {
         .foregroundStyle(isTarget ? Color.white : KM.textPrimary)
         .padding(.leading, 8 + (isSearching ? 0 : CGFloat(option.depth) * 18))
         .padding(.trailing, 8)
-        .frame(height: 28)
+        .frame(minHeight: 28)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(isTarget ? KM.accent : Color.clear)
