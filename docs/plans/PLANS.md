@@ -35,7 +35,11 @@ Priority: **P1** — expected by most users / parity with KeePassXC & MacPass, *
   - Store passkeys in KeePassXC format (`KPEX_PASSKEY_*` attributes) and show them in entries
   - KeePassXC-Browser `passkeys-register` / `passkeys-get` messages (WebAuthn: ES256/EdDSA, attestation none)
   - Later: system passkey provider through the Credential Provider extension
-- [ ] **Hardware key unlock** (KeePassXC) — YubiKey HMAC-SHA1 challenge-response (KeePassXC/KeeChallenge compatible), USB HID via IOKit, combined with password/key file
+- [ ] **Hardware key unlock** (KeePassXC) — plan: [2026-10-14-hardware-key.md](2026-10-14-hardware-key.md) — YubiKey HMAC-SHA1 challenge-response, KeePassXC compatible, USB HID via IOKit, combined with password/key file
+  - KeePassKit patch: challenge-response in the composite key (KDBX 4), KDF seed kept between saves (one touch per session)
+  - YubiKey HID driver, software emulator for tests
+  - Unlock / New Database / Change Master Key with a hardware key, touch panel
+  - Per-database option: Touch ID unlocks without the hardware key
 - [ ] **Multi-select and bulk actions** (all four) — select many entries: move, delete, tag, favorite, export selection, change icon
 - [x] **More OTP types** (KeePassXC, 1Password, Bitwarden) — HOTP with counter and Steam Guard — plan: [2026-10-13-otp-types.md](2026-10-13-otp-types.md)
   - Domain kinds + HOTP/Steam generators
