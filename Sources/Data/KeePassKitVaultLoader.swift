@@ -541,6 +541,21 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         return result
     }
 
+    /// Seconds one unlock spends deriving the key on this Mac: one Argon2 pass (or 200,000 AES rounds)
+    /// is timed and scaled, so large settings don't take as long to estimate as to use.
+    public nonisolated static func estimatedUnlockSeconds(_ settings: VaultDatabaseSettings) throws -> Double {
+        var probe = settings
+        let sample = Data(repeating: 0x5A, count: 32)
+        switch settings.kdf {
+        case .argon2d, .argon2id:
+            probe.argonIterations = 1
+            return try measureDerivation(of: sample, settings: probe) * Double(max(settings.argonIterations, 1))
+        case .aes:
+            probe.aesRounds = 200_000
+            return try measureDerivation(of: sample, settings: probe) * Double(settings.aesRounds) / 200_000
+        }
+    }
+
     private nonisolated static func measureDerivation(of sample: Data, settings: VaultDatabaseSettings) throws -> Double {
         let parameters = try makeKeyDerivationParameters(from: settings)
         let start = Date()
@@ -987,7 +1002,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             history: Self.historyLimits(of: meta),
             unusedIconCount: unused.count,
             unusedIconBytes: unused.reduce(0) { $0 + ($1.encodedString?.count ?? 0) * 3 / 4 },
-            masterKeyChangedAt: Self.knownDate(meta.masterKeyChanged)
+            masterKeyChangedAt: Self.knownDate(meta.masterKeyChanged),
+            hasPassword: currentSession.key.hasKey(of: KPKPasswordKey.self)
         )
     }
 

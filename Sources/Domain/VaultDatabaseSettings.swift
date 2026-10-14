@@ -96,6 +96,8 @@ public struct VaultMaintenanceStatus: Sendable, Equatable {
     public var unusedIconCount: Int
     public var unusedIconBytes: Int
     public var masterKeyChangedAt: Date?
+    /// The master key includes a password (it may be a key file alone).
+    public var hasPassword: Bool
 
     public init(
         usesRecycleBin: Bool = true,
@@ -104,7 +106,8 @@ public struct VaultMaintenanceStatus: Sendable, Equatable {
         history: VaultHistoryLimits = VaultHistoryLimits(),
         unusedIconCount: Int = 0,
         unusedIconBytes: Int = 0,
-        masterKeyChangedAt: Date? = nil
+        masterKeyChangedAt: Date? = nil,
+        hasPassword: Bool = true
     ) {
         self.usesRecycleBin = usesRecycleBin
         self.recycleBinPath = recycleBinPath
@@ -113,6 +116,7 @@ public struct VaultMaintenanceStatus: Sendable, Equatable {
         self.unusedIconCount = unusedIconCount
         self.unusedIconBytes = unusedIconBytes
         self.masterKeyChangedAt = masterKeyChangedAt
+        self.hasPassword = hasPassword
     }
 }
 

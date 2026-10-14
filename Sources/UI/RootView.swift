@@ -266,21 +266,7 @@ public struct RootView: View {
             }
         }
         .sheet(isPresented: $showDatabaseSettings) {
-            DatabaseSettingsView(
-                templateGroups: templateGroupOptions,
-                onLoad: {
-                    try await viewModel.loadDatabaseSettings()
-                },
-                onSaveSettings: { settings in
-                    try await viewModel.updateDatabaseSettings(settings)
-                },
-                onChangePassword: { newPassword in
-                    try await viewModel.changeMasterPassword(newPassword: newPassword)
-                },
-                additionalDatabases: viewModel.additionalDatabases,
-                onRemoveAdditional: { viewModel.removeAdditionalDatabase($0) },
-                onLocateAdditional: { key, url in try viewModel.locateAdditionalDatabase(key, at: url) }
-            )
+            DatabaseSettingsView(viewModel: viewModel, templateGroups: templateGroupOptions)
         }
         .onReceive(NotificationCenter.default.publisher(for: AppCommand.clearKeyFile)) { _ in
             viewModel.selectKeyFile(url: nil)

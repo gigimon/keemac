@@ -46,12 +46,12 @@ Stack: Swift 6.1, SwiftUI, KeePassKit (`KPKMetaData.useTrash` / `trashUuid` / `h
 [x] Unused custom icons: count and remove (entries, history versions and groups count as users)
 
 ## Step 2: Settings UI
-[ ] Encryption card: segmented cipher and KDF, preset menus for parameters, unlock time estimate
-[ ] Recycle Bin card: toggle, group picker, disable dialog
-[ ] History card: max versions, max size, unlimited options
-[ ] Maintenance card: unused icons count and Remove
-[ ] Master Key card and Change Master Key sheet; recent-database key file and Touch ID updated afterwards
-[ ] Localize new strings (en/ru)
+[x] Encryption card: segmented cipher and KDF, preset menus for parameters, unlock time estimate
+[x] Recycle Bin card: toggle, group picker, disable dialog
+[x] History card: max versions, max size, unlimited options
+[x] Maintenance card: unused icons count and Remove
+[x] Master Key card and Change Master Key sheet; recent-database key file and Touch ID updated afterwards
+[x] Localize new strings (en/ru)
 
 ## Step 3: Docs
 [ ] README and CLAUDE.md

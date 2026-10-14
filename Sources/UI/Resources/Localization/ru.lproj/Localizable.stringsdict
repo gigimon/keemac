@@ -691,5 +691,135 @@
       <key>other</key><string>%lld привязки к окнам</string>
     </dict>
   </dict>
+  <key>%lld iterations</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld итерация</string>
+      <key>few</key><string>%lld итерации</string>
+      <key>many</key><string>%lld итераций</string>
+      <key>other</key><string>%lld итерации</string>
+    </dict>
+  </dict>
+  <key>%lld million rounds</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld миллион раундов</string>
+      <key>few</key><string>%lld миллиона раундов</string>
+      <key>many</key><string>%lld миллионов раундов</string>
+      <key>other</key><string>%lld миллиона раундов</string>
+    </dict>
+  </dict>
+  <key>%lld rounds</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld раунд</string>
+      <key>few</key><string>%lld раунда</string>
+      <key>many</key><string>%lld раундов</string>
+      <key>other</key><string>%lld раунда</string>
+    </dict>
+  </dict>
+  <key>%lld versions</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld версия</string>
+      <key>few</key><string>%lld версии</string>
+      <key>many</key><string>%lld версий</string>
+      <key>other</key><string>%lld версии</string>
+    </dict>
+  </dict>
+  <key>%lld entries in the bin</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld запись в корзине</string>
+      <key>few</key><string>%lld записи в корзине</string>
+      <key>many</key><string>%lld записей в корзине</string>
+      <key>other</key><string>%lld записи в корзине</string>
+    </dict>
+  </dict>
+  <key>The recycle bin has %lld entries.</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>В корзине %lld запись.</string>
+      <key>few</key><string>В корзине %lld записи.</string>
+      <key>many</key><string>В корзине %lld записей.</string>
+      <key>other</key><string>В корзине %lld записи.</string>
+    </dict>
+  </dict>
+  <key>Remove %lld unused icons?</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Удалить %lld неиспользуемую иконку?</string>
+      <key>few</key><string>Удалить %lld неиспользуемые иконки?</string>
+      <key>many</key><string>Удалить %lld неиспользуемых иконок?</string>
+      <key>other</key><string>Удалить %lld неиспользуемые иконки?</string>
+    </dict>
+  </dict>
+  <key>Recycle bin emptied · %lld entries deleted</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Корзина очищена · удалена %lld запись</string>
+      <key>few</key><string>Корзина очищена · удалено %lld записи</string>
+      <key>many</key><string>Корзина очищена · удалено %lld записей</string>
+      <key>other</key><string>Корзина очищена · удалено %lld записи</string>
+    </dict>
+  </dict>
+  <key>%lld icons</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>%lld иконка</string>
+      <key>few</key><string>%lld иконки</string>
+      <key>many</key><string>%lld иконок</string>
+      <key>other</key><string>%lld иконки</string>
+    </dict>
+  </dict>
+  <key>Removed %lld unused icons</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key><string>%#@n@</string>
+    <key>n</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key><string>lld</string>
+      <key>one</key><string>Удалена %lld неиспользуемая иконка</string>
+      <key>few</key><string>Удалено %lld неиспользуемые иконки</string>
+      <key>many</key><string>Удалено %lld неиспользуемых иконок</string>
+      <key>other</key><string>Удалено %lld неиспользуемые иконки</string>
+    </dict>
+  </dict>
 </dict>
 </plist>

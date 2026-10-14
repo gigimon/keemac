@@ -37,6 +37,11 @@ public enum UITesting {
         )
     }
 
+    /// Stands in for the open and save panels of the Change Master Key sheet (`KEEMAC_UI_TEST_KEY_FILE`).
+    static var keyFileURL: URL? {
+        environment("KEEMAC_UI_TEST_KEY_FILE").map { URL(fileURLWithPath: $0) }
+    }
+
     /// Secrets are copied here instead of the general pasteboard; tests read it by name.
     public static let pasteboardName = NSPasteboard.Name("com.keemac.uitests")
 

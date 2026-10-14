@@ -1,3 +1,5 @@
+import AppKit
+import Data
 import Domain
 import SwiftUI
 
@@ -18,137 +20,231 @@ public struct TemplateGroupOption: Identifiable, Sendable {
     }
 }
 
+/// Settings stored in the open database: one scrolling sheet of cards, each saved on its own.
 public struct DatabaseSettingsView: View {
+    @Bindable var viewModel: AppViewModel
     /// Groups for the templates picker; nil hides it (KDBX 3.1 has no entry types).
     let templateGroups: [TemplateGroupOption]?
-    let onLoad: @Sendable () async throws -> VaultDatabaseSettings
-    let onSaveSettings: @Sendable (VaultDatabaseSettings) async throws -> Void
-    let onChangePassword: @Sendable (String) async throws -> Void
-    /// Databases attached to this one; nil hides the section.
-    let additionalDatabases: [AdditionalDatabase]?
-    let onRemoveAdditional: @MainActor (String) -> Void
-    let onLocateAdditional: @MainActor (String, URL) throws -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var settings: VaultDatabaseSettings?
+    private enum Busy: Equatable {
+        case general
+        case encryption
+        case recycleBin
+        case history
+        case icons
+    }
+
+    /// What was last read from or saved to the database.
+    @State private var saved: VaultDatabaseSettings?
+    @State private var draft = VaultDatabaseSettings()
+    @State private var status: VaultMaintenanceStatus?
+    @State private var binEnabled = true
+    /// "" keeps the current bin group, `newBinGroupTag` asks for a new one, anything else is a group path.
+    @State private var binGroup = ""
+    @State private var history = VaultHistoryLimits()
+    @State private var busy: Busy?
+    @State private var unlockSeconds: Double?
     @State private var loadError: String?
-    @State private var statusMessage: String?
     @State private var errorMessage: String?
-    @State private var isBusy = false
+    @State private var toast: String?
+    @State private var showsBinDialog = false
+    @State private var showsIconsDialog = false
+    @State private var showsChangeMasterKey = false
 
-    @State private var newPassword = ""
-    @State private var confirmPassword = ""
+    private static let newBinGroupTag = "\u{1}new"
 
-    public init(
-        templateGroups: [TemplateGroupOption]? = nil,
-        onLoad: @escaping @Sendable () async throws -> VaultDatabaseSettings,
-        onSaveSettings: @escaping @Sendable (VaultDatabaseSettings) async throws -> Void,
-        onChangePassword: @escaping @Sendable (String) async throws -> Void,
-        additionalDatabases: [AdditionalDatabase]? = nil,
-        onRemoveAdditional: @escaping @MainActor (String) -> Void = { _ in },
-        onLocateAdditional: @escaping @MainActor (String, URL) throws -> Void = { _, _ in }
-    ) {
+    public init(viewModel: AppViewModel, templateGroups: [TemplateGroupOption]? = nil) {
+        self.viewModel = viewModel
         self.templateGroups = templateGroups
-        self.onLoad = onLoad
-        self.onSaveSettings = onSaveSettings
-        self.onChangePassword = onChangePassword
-        self.additionalDatabases = additionalDatabases
-        self.onRemoveAdditional = onRemoveAdditional
-        self.onLocateAdditional = onLocateAdditional
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            Text(L("Database Settings"))
-                .font(.headline.weight(.semibold))
-                .padding(.vertical, 10)
-
-            Divider()
-
+            header
+            Rectangle().fill(KM.hairline).frame(height: 0.5)
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     if let loadError {
-                        Text(loadError)
-                            .foregroundStyle(.red)
-                    } else if settings == nil {
+                        Label(loadError, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(KM.danger)
+                    } else if saved == nil || status == nil {
                         ProgressView()
-                            .frame(maxWidth: .infinity, alignment: .center)
+                            .frame(maxWidth: .infinity)
                     } else {
-                        generalSection
-                        entryTypesSection
-                        encryptionSection
-                        passwordSection
-                        additionalDatabasesSection
-                    }
-
-                    if let statusMessage {
-                        Label(statusMessage, systemImage: "checkmark.circle.fill")
-                            .font(.callout)
-                            .foregroundStyle(.green)
+                        generalCard
+                        entryTypesCard
+                        encryptionCard
+                        recycleBinCard
+                        historyCard
+                        masterKeyCard
+                        maintenanceCard
+                        additionalDatabasesCard
                     }
                     if let errorMessage {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout)
-                            .foregroundStyle(.red)
+                            .font(.system(size: 12))
+                            .foregroundStyle(KM.danger)
+                            .accessibilityIdentifier("dbSettings.error")
                     }
                 }
-                .padding(.horizontal, 22)
-                .padding(.vertical, 18)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
             }
-
-            Divider()
-
+            Rectangle().fill(KM.hairline).frame(height: 0.5)
             HStack {
                 Spacer()
                 Button(L("Close")) {
                     dismiss()
                 }
-                .keemacSecondaryActionButton(minWidth: 94)
-                .disabled(isBusy)
+                .buttonStyle(KMButtonStyle(kind: .secondary, height: 30, horizontalPadding: 18))
+                .keyboardShortcut(.cancelAction)
+                .disabled(busy != nil)
+                .accessibilityIdentifier("dbSettings.close")
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(minWidth: 560, minHeight: 560)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 620, height: 700)
+        .background(KM.sheetBackground)
+        .overlay(alignment: .bottom) {
+            if let toast {
+                Label(toast, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(KM.toastText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(KM.toastBackground))
+                    .padding(.bottom, 64)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("dbSettings.toast")
+            }
+        }
         .task {
             await reload()
         }
-    }
-
-    // MARK: - Sections
-
-    @ViewBuilder
-    private var generalSection: some View {
-        if let binding = settingsBinding {
-            sectionCard(title: L("General")) {
-                labeledField(L("Name")) {
-                    TextField(L("Database name"), text: binding.name)
-                        .textFieldStyle(.roundedBorder)
-                }
-                labeledField(L("Description")) {
-                    TextField(L("Optional description"), text: binding.details, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(2...4)
-                }
-                saveButton(title: L("Save General")) {
-                    try await onSaveSettings(current)
-                }
+        .task(id: encryptionKey) {
+            await estimateUnlockTime()
+        }
+        .alert(L("Turn off the recycle bin?"), isPresented: $showsBinDialog) {
+            Button(L("Empty Recycle Bin"), role: .destructive) {
+                Task { await turnOffRecycleBin(.empty) }
+            }
+            Button(L("Keep as a Group")) {
+                Task { await turnOffRecycleBin(.keepAsGroup) }
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        } message: {
+            Text(L("The recycle bin has \(status?.recycleBinEntryCount ?? 0) entries."))
+        }
+        .alert(L("Remove \(status?.unusedIconCount ?? 0) unused icons?"), isPresented: $showsIconsDialog) {
+            Button(L("Remove"), role: .destructive) {
+                Task { await removeUnusedIcons() }
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        } message: {
+            Text(L("Icons used by entries, groups or their history are kept."))
+        }
+        .sheet(isPresented: $showsChangeMasterKey) {
+            ChangeMasterKeySheet(viewModel: viewModel, hasPassword: status?.hasPassword ?? true) { generatedFile in
+                showToast(generatedFile.map { L("Master key changed · \($0) created") } ?? L("Master key changed"))
+                Task { await reloadStatus() }
             }
         }
     }
 
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "cylinder.split.1x2")
+                .font(.system(size: 18))
+                .foregroundStyle(KM.accent)
+                .frame(width: 36, height: 36)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(KM.accent.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(L("Database Settings"))
+                    .font(.system(size: 15, weight: .bold))
+                Text(viewModel.selectedVaultURL?.lastPathComponent ?? "")
+                    .font(.system(size: 11))
+                    .foregroundStyle(KM.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+    }
+
+    // MARK: General
+
+    private var generalCard: some View {
+        card(L("General")) {
+            row(L("Name"), isFirst: true) {
+                TextField(L("Database name"), text: $draft.name)
+                    .textFieldStyle(.plain)
+                    .kmField(height: 26)
+                    .frame(width: 300)
+                    .accessibilityIdentifier("dbSettings.name")
+            }
+            row(L("Description")) {
+                TextField(L("Optional description"), text: $draft.details, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...3)
+                    .kmField(height: nil)
+                    .frame(width: 300)
+            }
+            row(L("Location")) {
+                Text(locationText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(KM.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            footer {
+                saveButton(L("Save General"), busy: .general, enabled: generalDirty) {
+                    var settings = saved ?? draft
+                    settings.name = draft.name
+                    settings.details = draft.details
+                    try await viewModel.updateDatabaseSettings(settings)
+                    saved = settings
+                    showToast(L("Saved."))
+                }
+                .accessibilityIdentifier("dbSettings.saveGeneral")
+            }
+        }
+    }
+
+    private var generalDirty: Bool {
+        guard let saved else { return false }
+        return saved.name != draft.name || saved.details != draft.details
+    }
+
+    private var locationText: String {
+        guard let path = viewModel.selectedVaultURL?.deletingLastPathComponent().path else {
+            return ""
+        }
+        return (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    // MARK: Entry types
+
     @ViewBuilder
-    private var entryTypesSection: some View {
-        if let templateGroups, settings != nil {
-            sectionCard(title: L("Entry Types")) {
-                labeledField(L("Templates group")) {
+    private var entryTypesCard: some View {
+        if let templateGroups {
+            card(L("Entry Types")) {
+                row(L("Templates group"), subtitle: templatesSubtitle(templateGroups), isFirst: true) {
                     Picker("", selection: Binding(
-                        get: { current.templatesGroupPath ?? "" },
+                        get: { saved?.templatesGroupPath ?? "" },
                         set: { path in
-                            settings?.templatesGroupPath = path.isEmpty ? nil : path
-                            Task { await perform { try await onSaveSettings(current) } }
+                            Task {
+                                await perform(nil) {
+                                    var settings = saved ?? draft
+                                    settings.templatesGroupPath = path.isEmpty ? nil : path
+                                    try await viewModel.updateDatabaseSettings(settings)
+                                    saved = settings
+                                    draft.templatesGroupPath = settings.templatesGroupPath
+                                }
+                            }
                         }
                     )) {
                         Text(L("None")).tag("")
@@ -158,157 +254,406 @@ public struct DatabaseSettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .disabled(isBusy)
+                    .disabled(busy != nil)
                 }
-                Text(templatesSubtitle(templateGroups))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
 
     private func templatesSubtitle(_ groups: [TemplateGroupOption]) -> String {
-        guard let path = current.templatesGroupPath, let group = groups.first(where: { $0.path == path }) else {
+        guard let path = saved?.templatesGroupPath, let group = groups.first(where: { $0.path == path }) else {
             return L("New Entry offers only the built-in types.")
         }
         let count = group.entryCount
         return L("Entries in \(group.title) appear as types in New Entry: \(count).")
     }
 
-    @ViewBuilder
-    private var encryptionSection: some View {
-        if let binding = settingsBinding {
-            sectionCard(title: L("Encryption (Key Derivation)")) {
-                Picker(L("Algorithm"), selection: binding.kdf) {
-                    ForEach(VaultKDFAlgorithm.allCases, id: \.self) { algorithm in
-                        Text(algorithm.displayName).tag(algorithm)
-                    }
-                }
-                .pickerStyle(.segmented)
+    // MARK: Encryption
 
-                if current.kdf.isArgon {
-                    stepperRow(L("Iterations"), value: binding.argonIterations, range: 1...100, unit: "")
-                    stepperRow(L("Memory"), value: binding.argonMemoryMiB, range: 1...1024, unit: L("MiB"), step: 8)
-                    stepperRow32(L("Parallelism"), value: binding.argonParallelism, range: 1...16) { L("\($0) threads") }
-                } else {
-                    labeledField(L("Rounds")) {
-                        TextField(L("Rounds"), value: binding.aesRounds, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 180)
-                    }
+    private var encryptionCard: some View {
+        card(L("Encryption")) {
+            row(L("Cipher"), isFirst: true) {
+                KMSegmentedControl(
+                    options: VaultCipher.allCases.map { ($0, $0.displayName) },
+                    selection: $draft.cipher,
+                    identifierPrefix: "dbSettings.cipher"
+                )
+            }
+            row(L("Key derivation"), subtitle: draft.kdf.isArgon
+                ? L("Memory-hard. Resists GPU and ASIC cracking.")
+                : L("Legacy. Use for KeePass 2.34 and older.")) {
+                KMSegmentedControl(
+                    options: [VaultKDFAlgorithm.argon2id, .argon2d, .aes].map { ($0, $0.displayName) },
+                    selection: $draft.kdf,
+                    identifierPrefix: "dbSettings.kdf"
+                )
+            }
+            if draft.kdf.isArgon {
+                row(L("Memory")) {
+                    presetMenu(
+                        value: draft.argonMemoryMiB,
+                        presets: [16, 32, 64, 128, 256, 512, 1024],
+                        label: { L("\(Int($0)) MB") },
+                        select: { draft.argonMemoryMiB = $0 }
+                    )
                 }
-
-                Text(L("Higher values increase resistance to brute-force attacks but make unlocking slower."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                saveButton(title: L("Apply Encryption")) {
-                    try await onSaveSettings(current)
+                row(L("Iterations")) {
+                    presetMenu(
+                        value: draft.argonIterations,
+                        presets: [2, 5, 10, 20, 50],
+                        label: { L("\(Int($0)) iterations") },
+                        select: { draft.argonIterations = $0 }
+                    )
                 }
+                row(L("Parallelism")) {
+                    presetMenu(
+                        value: UInt64(draft.argonParallelism),
+                        presets: [1, 2, 4, 8],
+                        label: { L("\(Int($0)) threads") },
+                        select: { draft.argonParallelism = UInt32($0) }
+                    )
+                }
+            } else {
+                row(L("Rounds")) {
+                    presetMenu(
+                        value: draft.aesRounds,
+                        presets: [6_000_000, 30_000_000, 60_000_000, 120_000_000, 300_000_000],
+                        label: { rounds in
+                            rounds % 1_000_000 == 0 ? L("\(Int(rounds / 1_000_000)) million rounds") : L("\(Int(rounds)) rounds")
+                        },
+                        select: { draft.aesRounds = $0 }
+                    )
+                }
+            }
+            row(L("Time to unlock")) {
+                Text(unlockSeconds.map { L("~\(String(format: "%.1f", max($0, 0.1))) s on this Mac") } ?? "…")
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(KM.textSecondary)
+                    .accessibilityIdentifier("dbSettings.unlockTime")
+            }
+            footer(note: L("Changing the cipher or key derivation re-encrypts the database when you apply.")) {
+                saveButton(
+                    busy == .encryption ? L("Re-encrypting…") : L("Apply Encryption"),
+                    busy: .encryption,
+                    enabled: encryptionDirty
+                ) {
+                    var settings = saved ?? draft
+                    settings.cipher = draft.cipher
+                    settings.kdf = draft.kdf
+                    settings.argonMemoryMiB = draft.argonMemoryMiB
+                    settings.argonIterations = draft.argonIterations
+                    settings.argonParallelism = draft.argonParallelism
+                    settings.aesRounds = draft.aesRounds
+                    try await viewModel.updateDatabaseSettings(settings)
+                    saved = settings
+                    showToast(L("Database re-encrypted · \(settings.cipher.displayName) · \(settings.kdf.displayName)"))
+                }
+                .accessibilityIdentifier("dbSettings.applyEncryption")
             }
         }
     }
 
-    private var passwordSection: some View {
-        sectionCard(title: L("Master Password")) {
-            SecureField(L("New password"), text: $newPassword)
-                .textFieldStyle(.roundedBorder)
-            SecureField(L("Confirm new password"), text: $confirmPassword)
-                .textFieldStyle(.roundedBorder)
+    /// Changes when any encryption setting changes, to measure the unlock time again.
+    private var encryptionKey: String {
+        "\(draft.kdf)-\(draft.argonMemoryMiB)-\(draft.argonIterations)-\(draft.argonParallelism)-\(draft.aesRounds)"
+    }
 
-            if let strength = PasswordStrength.evaluate(newPassword) {
-                HStack(spacing: 8) {
-                    Text(strength.level.label)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(strength.level.color)
-                    Text(L("~\(Int(strength.entropyBits)) bits"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+    private var encryptionDirty: Bool {
+        guard let saved else { return false }
+        return saved.cipher != draft.cipher || saved.kdf != draft.kdf
+            || saved.argonMemoryMiB != draft.argonMemoryMiB || saved.argonIterations != draft.argonIterations
+            || saved.argonParallelism != draft.argonParallelism || saved.aesRounds != draft.aesRounds
+    }
+
+    private func presetMenu(value: UInt64, presets: [UInt64], label: @escaping (UInt64) -> String, select: @escaping (UInt64) -> Void) -> some View {
+        // A value set elsewhere (another client, the old steppers) stays selectable.
+        let options = presets.contains(value) ? presets : (presets + [value]).sorted()
+        return Menu {
+            ForEach(options, id: \.self) { option in
+                Button(label(option)) { select(option) }
             }
-
-            Text(L("Changing the master password re-encrypts and saves the database immediately. A .bak backup of the previous file is kept."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            saveButton(title: L("Change Password"), isDestructive: true) {
-                guard newPassword == confirmPassword else {
-                    throw DatabaseSettingsError.passwordMismatch
-                }
-                guard !newPassword.isEmpty else {
-                    throw DatabaseSettingsError.emptyPassword
-                }
-                try await onChangePassword(newPassword)
-                newPassword = ""
-                confirmPassword = ""
-            }
+        } label: {
+            menuLabel(label(value))
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
-    // MARK: - Building blocks
+    // MARK: Recycle bin
 
-    private var current: VaultDatabaseSettings {
-        settings ?? VaultDatabaseSettings()
-    }
-
-    private var settingsBinding: Binding<VaultDatabaseSettings>? {
-        guard settings != nil else {
-            return nil
-        }
-        return Binding(
-            get: { settings ?? VaultDatabaseSettings() },
-            set: { settings = $0 }
-        )
-    }
-
-    @ViewBuilder
-    private var additionalDatabasesSection: some View {
-        if let additionalDatabases {
-            sectionCard(title: L("Additional Databases")) {
-                if additionalDatabases.isEmpty {
-                    Text(L("No additional databases"))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(additionalDatabases) { database in
-                    HStack(spacing: 10) {
-                        Image(systemName: database.state == .missing ? "exclamationmark.triangle.fill" : "cylinder.split.1x2")
-                            .foregroundStyle(database.state == .missing ? KM.warning : KM.accent)
-                            .frame(width: 20)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(database.name)
-                            Text(additionalSubtitle(database))
-                                .font(.caption)
-                                .foregroundStyle(database.state == .missing ? KM.warning : .secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+    private var recycleBinCard: some View {
+        card(L("Recycle Bin")) {
+            row(
+                L("Move deleted entries to the recycle bin"),
+                subtitle: binEnabled ? L("Deleted entries can be restored") : L("Deleting is permanent"),
+                isFirst: true
+            ) {
+                toggle(Binding(
+                    get: { binEnabled },
+                    set: { isOn in
+                        if !isOn, status?.usesRecycleBin == true, (status?.recycleBinEntryCount ?? 0) > 0 {
+                            showsBinDialog = true
+                        } else {
+                            binEnabled = isOn
                         }
-                        Spacer(minLength: 8)
+                    }
+                ))
+                .accessibilityIdentifier("dbSettings.recycleBin.enabled")
+            }
+            row(L("Recycle bin group"), subtitle: binCountLabel) {
+                Menu {
+                    if let path = status?.recycleBinPath {
+                        Button(L("\(GroupPathFormatter.title(of: path)) — current")) { binGroup = "" }
+                    }
+                    ForEach(binGroupOptions, id: \.path) { group in
+                        Button(String(repeating: "    ", count: group.depth) + group.title) { binGroup = group.path }
+                    }
+                    Divider()
+                    Button(L("New Group…")) { binGroup = Self.newBinGroupTag }
+                } label: {
+                    menuLabel(binGroupTitle)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityIdentifier("dbSettings.recycleBin.group")
+            }
+            .opacity(binEnabled ? 1 : 0.45)
+            .disabled(!binEnabled)
+            footer {
+                saveButton(L("Save Recycle Bin"), busy: .recycleBin, enabled: binDirty) {
+                    let group: VaultRecycleBinGroup = binGroup.isEmpty
+                        ? .current
+                        : (binGroup == Self.newBinGroupTag ? .new : .existing(path: binGroup))
+                    try await viewModel.updateRecycleBin(enabled: binEnabled, group: group, disposal: nil)
+                    await reloadStatus()
+                    showToast(L("Recycle bin settings saved"))
+                }
+                .accessibilityIdentifier("dbSettings.recycleBin.save")
+            }
+        }
+    }
+
+    private var binDirty: Bool {
+        guard let status else { return false }
+        return binEnabled != status.usesRecycleBin || (binEnabled && !binGroup.isEmpty)
+    }
+
+    private var binCountLabel: String {
+        guard let status, status.usesRecycleBin else {
+            return L("Off")
+        }
+        let count = status.recycleBinEntryCount
+        return count == 0 ? L("Empty") : L("\(count) entries in the bin")
+    }
+
+    private var binGroupTitle: String {
+        if binGroup == Self.newBinGroupTag {
+            return L("New group “Recycle Bin”")
+        }
+        if !binGroup.isEmpty {
+            return GroupPathFormatter.title(of: binGroup)
+        }
+        return status?.recycleBinPath.map { GroupPathFormatter.title(of: $0) } ?? L("Created on first delete")
+    }
+
+    /// Groups of the main database that can become the bin: not the root, not inside the current bin.
+    private var binGroupOptions: [(path: String, title: String, depth: Int)] {
+        guard case .loaded(let vault) = viewModel.loadState else {
+            return []
+        }
+        let rootPath = vault.groups.first { !$0.path.contains(".") }?.path ?? ""
+        let binPath = status?.recycleBinPath
+        return vault.groups
+            .filter { group in
+                !group.isTrash && group.path != rootPath
+                    && !(binPath.map { group.path == $0 || group.path.hasPrefix($0 + ".") } ?? false)
+            }
+            .map { ($0.path, $0.title, max($0.path.split(separator: ".").count - 2, 0)) }
+    }
+
+    private func turnOffRecycleBin(_ disposal: VaultRecycleBinDisposal) async {
+        let count = status?.recycleBinEntryCount ?? 0
+        await perform(.recycleBin) {
+            try await viewModel.updateRecycleBin(enabled: false, group: .current, disposal: disposal)
+            binEnabled = false
+            binGroup = ""
+            await reloadStatus()
+            showToast(disposal == .empty
+                ? L("Recycle bin emptied · \(count) entries deleted")
+                : L("Recycle bin turned off · kept as a group"))
+        }
+    }
+
+    // MARK: History
+
+    private var historyCard: some View {
+        card(L("History")) {
+            row(L("Keep up to"), isFirst: true) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 6) {
+                        Button {
+                            history.maxItems = max((history.maxItems ?? 10) - 1, 1)
+                        } label: {
+                            Image(systemName: "minus").font(.system(size: 10, weight: .semibold))
+                        }
+                        .buttonStyle(KMIconButtonStyle(size: 22, cornerRadius: 6, filled: true))
+                        .accessibilityIdentifier("dbSettings.history.decrement")
+                        Text(L("\(history.maxItems ?? 10) versions"))
+                            .font(.system(size: 12).monospacedDigit())
+                            .frame(minWidth: 72)
+                            .accessibilityIdentifier("dbSettings.history.items")
+                        Button {
+                            history.maxItems = min((history.maxItems ?? 10) + 1, 100)
+                        } label: {
+                            Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
+                        }
+                        .buttonStyle(KMIconButtonStyle(size: 22, cornerRadius: 6, filled: true))
+                        .accessibilityIdentifier("dbSettings.history.increment")
+                    }
+                    .opacity(history.maxItems == nil ? 0.45 : 1)
+                    .disabled(history.maxItems == nil)
+                    KMCheckbox(title: L("Unlimited"), isOn: Binding(
+                        get: { history.maxItems == nil },
+                        set: { history.maxItems = $0 ? nil : 10 }
+                    ))
+                    .accessibilityIdentifier("dbSettings.history.itemsUnlimited")
+                }
+            }
+            row(L("Up to")) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 6) {
+                        TextField("", value: Binding(
+                            get: { history.maxSizeMB ?? 6 },
+                            set: { history.maxSizeMB = min(max($0, 1), 999) }
+                        ), format: .number)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                        .font(.system(size: 12).monospacedDigit())
+                        .frame(width: 40)
+                        .kmField(height: 24)
+                        .accessibilityIdentifier("dbSettings.history.size")
+                        Text(L("MB per entry"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(KM.textSecondary)
+                    }
+                    .opacity(history.maxSizeMB == nil ? 0.45 : 1)
+                    .disabled(history.maxSizeMB == nil)
+                    KMCheckbox(title: L("Unlimited"), isOn: Binding(
+                        get: { history.maxSizeMB == nil },
+                        set: { history.maxSizeMB = $0 ? nil : 6 }
+                    ))
+                    .accessibilityIdentifier("dbSettings.history.sizeUnlimited")
+                }
+            }
+            footer(note: L("New limits apply when entries change; existing history isn’t trimmed.")) {
+                saveButton(L("Save History"), busy: .history, enabled: history != status?.history) {
+                    try await viewModel.updateHistoryLimits(history)
+                    await reloadStatus()
+                    showToast(L("History limits saved"))
+                }
+                .accessibilityIdentifier("dbSettings.history.save")
+            }
+        }
+    }
+
+    // MARK: Master key
+
+    private var masterKeyCard: some View {
+        card(L("Master Key")) {
+            row(L("Password"), isFirst: true) {
+                Text((status?.hasPassword ?? true) ? L("masterKey.password.set", default: "Set") : L("masterKey.password.notSet", default: "Not set"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(KM.textSecondary)
+            }
+            row(L("Key file")) {
+                Text(viewModel.selectedKeyFileURL?.lastPathComponent ?? L("None"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(KM.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("dbSettings.keyFile")
+            }
+            row(L("Last changed")) {
+                Text(status?.masterKeyChangedAt.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) } ?? "—")
+                    .font(.system(size: 12))
+                    .foregroundStyle(KM.textSecondary)
+            }
+            footer {
+                Button(L("Change Master Key…")) {
+                    showsChangeMasterKey = true
+                }
+                .buttonStyle(KMButtonStyle(kind: .raised, height: 28, horizontalPadding: 14))
+                .disabled(busy != nil)
+                .accessibilityIdentifier("dbSettings.changeMasterKey")
+            }
+        }
+    }
+
+    // MARK: Maintenance
+
+    private var maintenanceCard: some View {
+        card(L("Maintenance")) {
+            row(L("Unused custom icons"), subtitle: iconsSubtitle, isFirst: true) {
+                if (status?.unusedIconCount ?? 0) > 0 {
+                    Button(L("Remove…")) {
+                        showsIconsDialog = true
+                    }
+                    .buttonStyle(KMButtonStyle(kind: .raised, height: 24, horizontalPadding: 12, fontWeight: .regular, fontSize: 12))
+                    .disabled(busy != nil)
+                    .accessibilityIdentifier("dbSettings.removeIcons")
+                }
+            }
+        }
+    }
+
+    private var iconsSubtitle: String {
+        guard let status, status.unusedIconCount > 0 else {
+            return L("No unused icons")
+        }
+        let size = ByteCountFormatter.string(fromByteCount: Int64(status.unusedIconBytes), countStyle: .file)
+        return L("\(status.unusedIconCount) icons") + " · " + size
+    }
+
+    private func removeUnusedIcons() async {
+        let count = status?.unusedIconCount ?? 0
+        await perform(.icons) {
+            try await viewModel.removeUnusedCustomIcons()
+            await reloadStatus()
+            showToast(L("Removed \(count) unused icons"))
+        }
+    }
+
+    // MARK: Additional databases
+
+    private var additionalDatabasesCard: some View {
+        card(L("Additional Databases")) {
+            if viewModel.additionalDatabases.isEmpty {
+                row(L("No additional databases"), isFirst: true) { EmptyView() }
+            }
+            ForEach(Array(viewModel.additionalDatabases.enumerated()), id: \.element.id) { index, database in
+                row(database.name, subtitle: additionalSubtitle(database), isFirst: index == 0) {
+                    HStack(spacing: 6) {
                         if database.state == .missing {
-                            Button(L("Locate…")) {
-                                locate(database)
-                            }
-                            .keemacSecondaryActionButton()
+                            Button(L("Locate…")) { locate(database) }
+                                .buttonStyle(KMButtonStyle(kind: .raised, height: 24, horizontalPadding: 10, fontWeight: .regular, fontSize: 12))
                         }
-                        Button(L("Remove")) {
-                            onRemoveAdditional(database.id)
-                        }
-                        .keemacSecondaryActionButton()
+                        Button(L("Remove")) { viewModel.removeAdditionalDatabase(database.id) }
+                            .buttonStyle(KMButtonStyle(kind: .raised, height: 24, horizontalPadding: 10, fontWeight: .regular, fontSize: 12))
                     }
                 }
-                HStack {
-                    Button(L("Add…")) {
-                        dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            NotificationCenter.default.post(name: AppCommand.addAdditionalDatabase, object: nil)
-                        }
+            }
+            footer(note: L("Stored on this Mac only. Not saved in the database file.")) {
+                Button(L("Add…")) {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        NotificationCenter.default.post(name: AppCommand.addAdditionalDatabase, object: nil)
                     }
-                    .keemacSecondaryActionButton()
-                    Spacer()
                 }
-                Text(L("Stored on this Mac only. Not saved in the database file."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .buttonStyle(KMButtonStyle(kind: .raised, height: 28, horizontalPadding: 14))
             }
         }
     }
@@ -328,118 +673,178 @@ public struct DatabaseSettingsView: View {
             return
         }
         do {
-            try onLocateAdditional(database.id, url)
+            try viewModel.locateAdditionalDatabase(database.id, at: url)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
-    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            content()
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-    }
+    // MARK: Building blocks
 
-    private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func card<Content: View>(_ title: String, @ViewBuilder rows: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            content()
-        }
-    }
-
-    private func stepperRow(_ title: String, value: Binding<UInt64>, range: ClosedRange<Int>, unit: String, step: Int = 1) -> some View {
-        let intBinding = Binding<Int>(
-            get: { Int(value.wrappedValue) },
-            set: { value.wrappedValue = UInt64(max($0, range.lowerBound)) }
-        )
-        return HStack {
-            Text(title)
-            Spacer()
-            Text("\(intBinding.wrappedValue) \(unit)")
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Stepper("", value: intBinding, in: range, step: step)
-                .labelsHidden()
-        }
-    }
-
-    private func stepperRow32(_ title: String, value: Binding<UInt32>, range: ClosedRange<Int>, valueText: (Int) -> String) -> some View {
-        let intBinding = Binding<Int>(
-            get: { Int(value.wrappedValue) },
-            set: { value.wrappedValue = UInt32(max($0, range.lowerBound)) }
-        )
-        return HStack {
-            Text(title)
-            Spacer()
-            Text(valueText(intBinding.wrappedValue))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Stepper("", value: intBinding, in: range)
-                .labelsHidden()
-        }
-    }
-
-    private func saveButton(title: String, isDestructive: Bool = false, action: @escaping () async throws -> Void) -> some View {
-        HStack {
-            Spacer()
-            Button {
-                Task { await perform(action) }
-            } label: {
-                Text(title).frame(minWidth: 130)
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.leading, 4)
+            VStack(spacing: 0) {
+                rows()
             }
-            .keemacPrimaryActionButton(minWidth: 130)
-            .tint(isDestructive ? .red : .accentColor)
-            .disabled(isBusy)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(KM.insetFill))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color(light: .black(0.06), dark: .white(0.06)), lineWidth: 0.5)
+            )
         }
     }
 
-    // MARK: - Actions
+    private func row<Trailing: View>(
+        _ title: String,
+        subtitle: String? = nil,
+        isFirst: Bool = false,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 13))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(KM.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(minHeight: 40)
+        .overlay(alignment: .top) {
+            if !isFirst {
+                Rectangle().fill(KM.hairline).frame(height: 0.5).padding(.horizontal, 14)
+            }
+        }
+    }
+
+    /// The card's last row: an optional note and its action.
+    private func footer<Action: View>(note: String? = nil, @ViewBuilder action: () -> Action) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            if let note {
+                Text(note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(KM.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            action()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(KM.hairline).frame(height: 0.5).padding(.horizontal, 14)
+        }
+    }
+
+    private func toggle(_ isOn: Binding<Bool>) -> some View {
+        Toggle("", isOn: isOn)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(KM.success)
+    }
+
+    private func menuLabel(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(KM.textSecondary)
+        }
+        .font(.system(size: 12))
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .frame(height: 24)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(KM.raisedButtonBackground))
+        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(KM.softBorder, lineWidth: 0.5))
+    }
+
+    private func saveButton(_ title: String, busy card: Busy, enabled: Bool, action: @escaping () async throws -> Void) -> some View {
+        Button {
+            Task { await perform(card, action) }
+        } label: {
+            HStack(spacing: 6) {
+                if busy == card {
+                    ProgressView().controlSize(.mini)
+                }
+                Text(title)
+            }
+        }
+        .buttonStyle(KMButtonStyle(kind: .primary, height: 28, horizontalPadding: 14, fontWeight: .semibold))
+        .disabled(!enabled || busy != nil)
+    }
+
+    // MARK: Actions
 
     private func reload() async {
         do {
-            let loaded = try await onLoad()
-            settings = loaded
+            let loaded = try await viewModel.loadDatabaseSettings()
+            saved = loaded
+            draft = loaded
+            try await loadStatus()
             loadError = nil
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? L("Could not load database settings.")
         }
     }
 
-    private func perform(_ action: () async throws -> Void) async {
-        isBusy = true
-        statusMessage = nil
+    private func loadStatus() async throws {
+        let loaded = try await viewModel.loadMaintenanceStatus()
+        status = loaded
+        binEnabled = loaded.usesRecycleBin
+        binGroup = ""
+        history = loaded.history
+    }
+
+    private func reloadStatus() async {
+        try? await loadStatus()
+    }
+
+    private func estimateUnlockTime() async {
+        unlockSeconds = nil
+        // Wait for the user to stop clicking through the menus.
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else {
+            return
+        }
+        let settings = draft
+        let seconds = await Task.detached(priority: .utility) {
+            try? KeePassKitVaultLoader.estimatedUnlockSeconds(settings)
+        }.value
+        if !Task.isCancelled {
+            unlockSeconds = seconds
+        }
+    }
+
+    private func perform(_ card: Busy?, _ action: () async throws -> Void) async {
+        busy = card
         errorMessage = nil
         do {
             try await action()
-            statusMessage = L("Saved.")
-        } catch let error as DatabaseSettingsError {
-            errorMessage = error.message
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? L("Operation failed.")
         }
-        isBusy = false
+        busy = nil
     }
-}
 
-private enum DatabaseSettingsError: Error {
-    case passwordMismatch
-    case emptyPassword
-
-    var message: String {
-        switch self {
-        case .passwordMismatch: return L("Passwords do not match.")
-        case .emptyPassword: return L("New password cannot be empty.")
+    private func showToast(_ message: String) {
+        withAnimation { toast = message }
+        Task {
+            try? await Task.sleep(for: .seconds(2.4))
+            withAnimation {
+                if toast == message {
+                    toast = nil
+                }
+            }
         }
     }
 }

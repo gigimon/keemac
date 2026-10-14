@@ -962,5 +962,165 @@
 			<string>%lld window associations</string>
 		</dict>
 	</dict>
+	<key>%lld iterations</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld iteration</string>
+			<key>other</key>
+			<string>%lld iterations</string>
+		</dict>
+	</dict>
+	<key>%lld million rounds</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld million rounds</string>
+			<key>other</key>
+			<string>%lld million rounds</string>
+		</dict>
+	</dict>
+	<key>%lld rounds</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld round</string>
+			<key>other</key>
+			<string>%lld rounds</string>
+		</dict>
+	</dict>
+	<key>%lld versions</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld version</string>
+			<key>other</key>
+			<string>%lld versions</string>
+		</dict>
+	</dict>
+	<key>%lld entries in the bin</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld entry in the bin</string>
+			<key>other</key>
+			<string>%lld entries in the bin</string>
+		</dict>
+	</dict>
+	<key>The recycle bin has %lld entries.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>The recycle bin has %lld entry.</string>
+			<key>other</key>
+			<string>The recycle bin has %lld entries.</string>
+		</dict>
+	</dict>
+	<key>Remove %lld unused icons?</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Remove %lld unused icon?</string>
+			<key>other</key>
+			<string>Remove %lld unused icons?</string>
+		</dict>
+	</dict>
+	<key>Recycle bin emptied · %lld entries deleted</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Recycle bin emptied · %lld entry deleted</string>
+			<key>other</key>
+			<string>Recycle bin emptied · %lld entries deleted</string>
+		</dict>
+	</dict>
+	<key>%lld icons</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld icon</string>
+			<key>other</key>
+			<string>%lld icons</string>
+		</dict>
+	</dict>
+	<key>Removed %lld unused icons</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Removed %lld unused icon</string>
+			<key>other</key>
+			<string>Removed %lld unused icons</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

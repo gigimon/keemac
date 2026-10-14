@@ -856,6 +856,77 @@ public final class AppViewModel {
         registerUserActivity()
     }
 
+    public func loadMaintenanceStatus() async throws -> VaultMaintenanceStatus {
+        guard let databaseManager else {
+            throw VaultError.missingDependency(name: "Database management service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: L("Vault is not unlocked."))
+        }
+        return try await databaseManager.maintenanceStatus()
+    }
+
+    public func updateRecycleBin(enabled: Bool, group: VaultRecycleBinGroup, disposal: VaultRecycleBinDisposal?) async throws {
+        try await applyMaintenance { try await $0.updateRecycleBin(enabled: enabled, group: group, disposal: disposal) }
+    }
+
+    public func updateHistoryLimits(_ limits: VaultHistoryLimits) async throws {
+        try await applyMaintenance { try await $0.updateHistoryLimits(limits) }
+    }
+
+    public func removeUnusedCustomIcons() async throws {
+        try await applyMaintenance { try await $0.removeUnusedCustomIcons() }
+    }
+
+    private func applyMaintenance(_ change: (any VaultDatabaseManaging) async throws -> LoadedVault) async throws {
+        guard let databaseManager else {
+            throw VaultError.missingDependency(name: "Database management service")
+        }
+        guard case .loaded = loadState else {
+            throw VaultError.parseFailure(details: L("Vault is not unlocked."))
+        }
+        let updatedVault = try await change(databaseManager)
+        syncEntryCollections(with: updatedVault)
+        loadState = .loaded(updatedVault)
+        await refreshUndoState()
+        await absorbPendingMerge()
+        registerUserActivity()
+    }
+
+    /// Checks the current password, changes the password and/or key file, and remembers the new key file
+    /// for this database. The Touch ID password follows a new password.
+    public func changeMasterKey(currentPassword: String, newPassword: String, keyFile: VaultKeyFileChange) async throws {
+        guard let databaseManager else {
+            throw VaultError.missingDependency(name: "Database management service")
+        }
+        guard case .loaded = loadState, let selectedVaultURL else {
+            throw VaultError.parseFailure(details: L("Vault is not unlocked."))
+        }
+        let keyFileURL = try await databaseManager.changeMasterKey(
+            currentPassword: currentPassword,
+            currentKeyFileURL: selectedKeyFileURL,
+            newPassword: newPassword,
+            keyFile: keyFile
+        )
+        selectedKeyFileURL = keyFileURL
+        recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: keyFileURL)
+
+        let password = newPassword.isEmpty ? currentPassword : newPassword
+        if settingsStore.isTouchIDEnabled(for: selectedVaultURL), !password.isEmpty {
+            do {
+                try biometricCredentialStore.saveMasterPassword(password, for: selectedVaultURL)
+                markBiometricCredentialAvailable(for: selectedVaultURL)
+            } catch {
+                SecureLogger.logUnlockFailure(error)
+            }
+        } else {
+            biometricCredentialStore.deleteMasterPassword(for: selectedVaultURL)
+            clearBiometricCredentialMarker(for: selectedVaultURL)
+        }
+        refreshBiometricUnlockAvailability()
+        registerUserActivity()
+    }
+
     public func changeMasterPassword(newPassword: String) async throws {
         guard let databaseManager else {
             throw VaultError.missingDependency(name: "Database management service")
