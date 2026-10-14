@@ -436,6 +436,8 @@ public struct VaultBrowserView: View {
         }
         .onChange(of: selectedSidebarItemID) { _, newValue in
             editingEntryID = nil
+            // Another list: back to one entry, like the design.
+            selection.collapse()
             ensureValidSelection()
             onSidebarSelectionChanged(newValue)
             additional.onActiveDatabaseChanged(activeDatabaseKey)
@@ -691,6 +693,7 @@ public struct VaultBrowserView: View {
                             .onTapGesture {
                                 selectSidebarItem(.tag(tag))
                             }
+                            .accessibilityIdentifier("sidebar.\(LibrarySelection.tag(tag).id)")
                         }
                     }
                 }
@@ -1206,13 +1209,6 @@ public struct VaultBrowserView: View {
             }
             .keyboardShortcut("d", modifiers: [.command])
 
-            // Only while the list has focus, so text fields keep their own Select All.
-            Button("") {
-                selectAllEntries()
-            }
-            .keyboardShortcut("a", modifiers: [.command])
-            .disabled(!isListFocused)
-
             Button("") {
                 deleteSelectedEntries()
             }
@@ -1322,6 +1318,10 @@ public struct VaultBrowserView: View {
                 moveSelection(by: -1)
             }
             return .handled
+        }
+        // Edit → Select All (⌘A) while the list has focus; text fields keep their own.
+        .onCommand(#selector(NSResponder.selectAll(_:))) {
+            selectAllEntries()
         }
         .onKeyPress(.escape) {
             guard selection.isMultiple else {

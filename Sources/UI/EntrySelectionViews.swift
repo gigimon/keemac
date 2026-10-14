@@ -290,7 +290,10 @@ struct TagSelectionPopover: View {
             .padding(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
         }
         .frame(width: 280)
-        .onAppear { isFieldFocused = true }
+        .onAppear {
+            // The popover's window isn't key yet on appear.
+            DispatchQueue.main.async { isFieldFocused = true }
+        }
     }
 
     private func pickFirst(_ suggestions: (tags: [String], canCreate: Bool)) {
