@@ -42,6 +42,33 @@ public enum UITesting {
         environment("KEEMAC_UI_TEST_KEY_FILE").map { URL(fileURLWithPath: $0) }
     }
 
+    /// A software YubiKey 12345678, slot 2, instead of USB (`KEEMAC_UI_TEST_HARDWARE_KEY=<hex secret>`).
+    /// `KEEMAC_UI_TEST_HARDWARE_KEY_TOUCH=1` makes it wait 1.5 s for a "touch", `=timeout` never gets one.
+    static let hardwareKey: SoftwareHardwareKey? = {
+        guard let hex = environment("KEEMAC_UI_TEST_HARDWARE_KEY") else {
+            return nil
+        }
+        let secret = Data(stride(from: 0, to: hex.count - 1, by: 2).compactMap { offset -> UInt8? in
+            let start = hex.index(hex.startIndex, offsetBy: offset)
+            return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)
+        })
+        let touch = environment("KEEMAC_UI_TEST_HARDWARE_KEY_TOUCH")
+        let key = VaultHardwareKey(serial: 12_345_678, slot: 2, model: "YubiKey 5 NFC", requiresTouch: touch != nil)
+        guard let touch else {
+            return SoftwareHardwareKey(secret: secret, key: key)
+        }
+        return SoftwareHardwareKey(secret: secret, key: key) { isCancelled in
+            let deadline = Date().addingTimeInterval(touch == "timeout" ? 30 : 1.5)
+            while Date() < deadline {
+                if isCancelled() {
+                    return false
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            return touch != "timeout"
+        }
+    }()
+
     /// Secrets are copied here instead of the general pasteboard; tests read it by name.
     public static let pasteboardName = NSPasteboard.Name("com.keemac.uitests")
 
@@ -105,5 +132,19 @@ final class InMemoryBiometricCredentialStore: BiometricCredentialStoring {
 
     func deleteMasterPassword(for vaultURL: URL) {
         passwords[vaultURL.standardizedFileURL.path] = nil
+    }
+
+    private var responses: [String: VaultHardwareKeyResponse] = [:]
+
+    func saveHardwareKeyResponse(_ response: VaultHardwareKeyResponse, for vaultURL: URL) throws {
+        responses[vaultURL.standardizedFileURL.path] = response
+    }
+
+    func loadHardwareKeyResponse(for vaultURL: URL) -> VaultHardwareKeyResponse? {
+        responses[vaultURL.standardizedFileURL.path]
+    }
+
+    func deleteHardwareKeyResponse(for vaultURL: URL) {
+        responses[vaultURL.standardizedFileURL.path] = nil
     }
 }

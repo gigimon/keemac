@@ -38,6 +38,20 @@ final class FakeBiometricCredentialStore: BiometricCredentialStoring {
     func deleteMasterPassword(for vaultURL: URL) {
         passwords[vaultURL.standardizedFileURL.path] = nil
     }
+
+    var responses: [String: VaultHardwareKeyResponse] = [:]
+
+    func saveHardwareKeyResponse(_ response: VaultHardwareKeyResponse, for vaultURL: URL) throws {
+        responses[vaultURL.standardizedFileURL.path] = response
+    }
+
+    func loadHardwareKeyResponse(for vaultURL: URL) -> VaultHardwareKeyResponse? {
+        responses[vaultURL.standardizedFileURL.path]
+    }
+
+    func deleteHardwareKeyResponse(for vaultURL: URL) {
+        responses[vaultURL.standardizedFileURL.path] = nil
+    }
 }
 
 /// One app session against a database in a temporary folder: isolated defaults, fake Touch ID,

@@ -1,3 +1,4 @@
+import Domain
 import Foundation
 import LocalAuthentication
 import Security
@@ -8,6 +9,11 @@ protocol BiometricCredentialStoring {
     func saveMasterPassword(_ password: String, for vaultURL: URL) throws
     func loadMasterPassword(for vaultURL: URL, prompt: String) async throws -> String
     func deleteMasterPassword(for vaultURL: URL)
+    /// The YubiKey response that lets Touch ID unlock without the key, stored like the password.
+    func saveHardwareKeyResponse(_ response: VaultHardwareKeyResponse, for vaultURL: URL) throws
+    /// Read right after `loadMasterPassword`, reusing its Touch ID authentication.
+    func loadHardwareKeyResponse(for vaultURL: URL) -> VaultHardwareKeyResponse?
+    func deleteHardwareKeyResponse(for vaultURL: URL)
 }
 
 enum BiometricCredentialError: LocalizedError {
@@ -39,6 +45,9 @@ enum BiometricCredentialError: LocalizedError {
 @MainActor
 final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
     private static let service = "com.keemac.master-password.biometric"
+    private static let responseService = "com.keemac.hardware-key-response.biometric"
+    /// The context Touch ID was evaluated with by the last `loadMasterPassword`.
+    private var authenticatedContext: LAContext?
 
     func hasSavedMasterPassword(for vaultURL: URL) -> Bool {
         let context = LAContext()
@@ -71,7 +80,38 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         }
 
         deleteMasterPassword(for: vaultURL)
+        try saveProtected(passwordData, query: baseQuery(for: vaultURL))
+    }
 
+    func saveHardwareKeyResponse(_ response: VaultHardwareKeyResponse, for vaultURL: URL) throws {
+        guard let data = try? JSONEncoder().encode(response) else {
+            throw BiometricCredentialError.invalidCredentialData
+        }
+        deleteHardwareKeyResponse(for: vaultURL)
+        try saveProtected(data, query: baseQuery(for: vaultURL, service: Self.responseService))
+    }
+
+    func loadHardwareKeyResponse(for vaultURL: URL) -> VaultHardwareKeyResponse? {
+        guard let context = authenticatedContext else {
+            return nil
+        }
+        var query = baseQuery(for: vaultURL, service: Self.responseService)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecUseAuthenticationContext as String] = context
+
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
+            return nil
+        }
+        return try? JSONDecoder().decode(VaultHardwareKeyResponse.self, from: data)
+    }
+
+    func deleteHardwareKeyResponse(for vaultURL: URL) {
+        _ = SecItemDelete(baseQuery(for: vaultURL, service: Self.responseService) as CFDictionary)
+    }
+
+    private func saveProtected(_ passwordData: Data, query: [String: Any]) throws {
         let fallbackFlags: [SecAccessControlCreateFlags] = [.biometryCurrentSet, .biometryAny, .userPresence]
         var lastError: BiometricCredentialError?
         var sawMissingEntitlement = false
@@ -89,7 +129,7 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
                 continue
             }
 
-            var addQuery = baseQuery(for: vaultURL)
+            var addQuery = query
             addQuery[kSecAttrAccessControl as String] = accessControl
             addQuery[kSecValueData as String] = passwordData
 
@@ -104,7 +144,7 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         }
 
         if sawMissingEntitlement {
-            try saveWithoutAccessControl(passwordData: passwordData, for: vaultURL)
+            try saveWithoutAccessControl(passwordData: passwordData, query: query)
             return
         }
 
@@ -119,6 +159,7 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         }
 
         try await evaluateBiometricPolicy(using: context, prompt: prompt)
+        authenticatedContext = context
 
         var query = baseQuery(for: vaultURL)
         query[kSecReturnData as String] = true
@@ -147,10 +188,10 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         _ = SecItemDelete(query as CFDictionary)
     }
 
-    private func baseQuery(for vaultURL: URL) -> [String: Any] {
+    private func baseQuery(for vaultURL: URL, service: String = service) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: vaultURL.standardizedFileURL.path
         ]
     }
@@ -172,8 +213,8 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         }
     }
 
-    private func saveWithoutAccessControl(passwordData: Data, for vaultURL: URL) throws {
-        var addQuery = baseQuery(for: vaultURL)
+    private func saveWithoutAccessControl(passwordData: Data, query: [String: Any]) throws {
+        var addQuery = query
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         addQuery[kSecValueData as String] = passwordData
 

@@ -76,6 +76,10 @@ public final class AppSettingsStore {
         var expiryWarnDays: Int?
         var expiryBanner: Bool?
         var additionalDatabases: [StoredAdditionalDatabase]?
+        /// The YubiKey slot that is part of this database's master key (the file doesn't say).
+        var hardwareKey: VaultHardwareKey?
+        /// Touch ID unlocks with the stored YubiKey response instead of asking the key.
+        var touchIDSkipsHardwareKey: Bool?
 
         init(
             touchIDEnabled: Bool = true,
@@ -100,6 +104,8 @@ public final class AppSettingsStore {
             expiryWarnDays = try container.decodeIfPresent(Int.self, forKey: .expiryWarnDays)
             expiryBanner = try container.decodeIfPresent(Bool.self, forKey: .expiryBanner)
             additionalDatabases = try? container.decodeIfPresent([StoredAdditionalDatabase].self, forKey: .additionalDatabases)
+            hardwareKey = try? container.decodeIfPresent(VaultHardwareKey.self, forKey: .hardwareKey)
+            touchIDSkipsHardwareKey = try container.decodeIfPresent(Bool.self, forKey: .touchIDSkipsHardwareKey)
         }
     }
 
@@ -321,6 +327,22 @@ public final class AppSettingsStore {
         )
         settings.touchIDEnabled = enabled
         perVaultSettings[identity] = settings
+    }
+
+    public func hardwareKey(for vaultURL: URL?) -> VaultHardwareKey? {
+        vaultIdentity(for: vaultURL).flatMap { perVaultSettings[$0]?.hardwareKey }
+    }
+
+    public func setHardwareKey(_ key: VaultHardwareKey?, for vaultURL: URL?) {
+        updateVaultSettings(for: vaultURL) { $0.hardwareKey = key }
+    }
+
+    public func touchIDSkipsHardwareKey(for vaultURL: URL?) -> Bool {
+        vaultIdentity(for: vaultURL).flatMap { perVaultSettings[$0]?.touchIDSkipsHardwareKey } ?? false
+    }
+
+    public func setTouchIDSkipsHardwareKey(_ skips: Bool, for vaultURL: URL?) {
+        updateVaultSettings(for: vaultURL) { $0.touchIDSkipsHardwareKey = skips }
     }
 
     public func idleLockTimeoutSeconds(for vaultURL: URL?) -> TimeInterval {
