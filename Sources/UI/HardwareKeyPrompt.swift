@@ -52,6 +52,8 @@ enum HardwareKeyPromptDecision: Sendable {
 
 /// Asks the real device and keeps the user informed: shows the touch panel while a challenge runs,
 /// offers Try Again on errors, and lets Cancel abort a challenge that waits for a touch.
+/// It blocks the calling thread (device I/O, the error panel's answer), so it must never be called from
+/// the main thread: the loader actor calls it, and the panel is answered on the main thread.
 final class PromptingHardwareKeyChallenger: HardwareKeyChallenging, @unchecked Sendable {
     private let device: any HardwareKeyChallenging
     /// A slot without touch answers in milliseconds; the panel only shows when it takes longer.
@@ -204,6 +206,14 @@ final class HardwareKeyPromptController {
                 self?.hide(attempt: attempt)
             }
         }
+    }
+
+    /// Cancels whatever the panel is waiting for, as if the user clicked Cancel (the database is locking).
+    func cancelCurrent() {
+        guard attempt != nil else {
+            return
+        }
+        perform(.cancel)
     }
 
     func hide(attempt: HardwareKeyAttempt) {

@@ -218,7 +218,7 @@ Run the UI tests locally (needs `brew install xcodegen`; don't touch the keyboar
 - macOS only.
 - Browser autofill doesn't support passkeys or Safari.
 - Import doesn't read 1Password `.1pux`, Bitwarden JSON or other non-CSV formats.
-- Hardware keys: YubiKey challenge-response over USB only (no NFC, no KeeChallenge, no KeePassXC's KDBX 3.1 scheme).
+- Hardware keys: YubiKey challenge-response over USB only (no NFC, no KeeChallenge, no KeePassXC's KDBX 3.1 scheme); additional databases and merging from another database don't support them.
 
 ## License
 

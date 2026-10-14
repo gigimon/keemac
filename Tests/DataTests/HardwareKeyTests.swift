@@ -265,6 +265,61 @@ final class HardwareKeyTests: XCTestCase {
         XCTAssertNil(removed.hardwareKey)
     }
 
+    func testDatabaseSettingsKeepTheSeedUnlessTheKeyDerivationChanges() async throws {
+        try await createVault(hardwareKey: yubiKey.key)
+        let loader = try await open(hardwareKey: yubiKey.key)
+        let seed = try headerSeed()
+        let challenges = yubiKey.challenges
+
+        var settings = try await loader.databaseSettings()
+        settings.name = "Renamed"
+        settings.details = "No new challenge for this"
+        _ = try await loader.updateDatabaseSettings(settings)
+        XCTAssertEqual(try headerSeed(), seed)
+        XCTAssertEqual(yubiKey.challenges, challenges, "renaming doesn't ask the key")
+
+        settings.argonIterations = 2
+        _ = try await loader.updateDatabaseSettings(settings)
+        XCTAssertNotEqual(try headerSeed(), seed, "new KDF parameters get a new seed")
+        XCTAssertEqual(yubiKey.challenges, challenges + 1)
+        let response = try await XCTUnwrapAsync(await loader.hardwareKeyResponse())
+        XCTAssertEqual(response.challenge, try headerSeed())
+        XCTAssertEqual(response.key, yubiKey.key)
+    }
+
+    func testKeyFileAndHardwareKey() async throws {
+        let keyFile = directory.appendingPathComponent("Hardware.keyx")
+        try KeePassKitVaultLoader.generateKeyFile(at: keyFile)
+        _ = try await KeePassKitVaultLoader(hardwareKeys: yubiKey).createVault(options: VaultCreationOptions(
+            fileURL: vaultURL,
+            name: "Both",
+            masterPassword: password,
+            keyFileURL: keyFile,
+            hardwareKey: yubiKey.key,
+            keyDerivation: Self.fastKDF
+        ))
+        let loader = KeePassKitVaultLoader(hardwareKeys: yubiKey)
+        _ = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: keyFile, hardwareKey: yubiKey.key, knownResponse: nil)
+        do {
+            _ = try await loader.loadVault(from: vaultURL, masterPassword: password, keyFileURL: nil, hardwareKey: yubiKey.key, knownResponse: nil)
+            XCTFail("the key file is needed too")
+        } catch {}
+    }
+
+    func testResponseFromAnotherSlotIsIgnored() async throws {
+        try await createVault(hardwareKey: yubiKey.key)
+        let loader = try await open(hardwareKey: yubiKey.key)
+        var stored = try await XCTUnwrapAsync(await loader.hardwareKeyResponse())
+        stored.key = VaultHardwareKey(serial: 999, slot: 2)
+        yubiKey.isConnected = false
+        do {
+            _ = try await open(hardwareKey: yubiKey.key, knownResponse: stored)
+            XCTFail("another key's response doesn't count")
+        } catch {
+            XCTAssertEqual(error as? VaultError, .hardwareKeyNotFound(serial: yubiKey.key.serial))
+        }
+    }
+
     func testHardwareKeyAlone() async throws {
         try await createVault(password: "", hardwareKey: yubiKey.key)
         let loader = try await open(password: "", hardwareKey: yubiKey.key)
@@ -497,10 +552,32 @@ final class HardwareKeyViewModelTests: XCTestCase {
 
         await model.setTouchIDSkipsHardwareKey(false)
         XCTAssertNil(biometrics.responses[vaultURL.standardizedFileURL.path], "turning it off deletes the response")
+        await model.setTouchIDSkipsHardwareKey(true)
+        // New encryption settings mean a new seed: the stored response follows.
+        var settings = try await (model.vaultLoader as! KeePassKitVaultLoader).databaseSettings()
+        settings.argonIterations = 2
+        yubiKey.isConnected = true
+        try await model.updateDatabaseSettings(settings)
+        let refreshed = try XCTUnwrap(biometrics.responses[vaultURL.standardizedFileURL.path])
+        XCTAssertNotEqual(refreshed.challenge, stored.challenge)
+
+        // Another slot chosen on the unlock screen doesn't get the stored response.
         model.lockVault(reason: .userInitiated)
         await model.finishPendingLock()
+        yubiKey.isConnected = false
+        model.selectHardwareKey(VaultHardwareKey(serial: 999, slot: 1))
+        await model.unlockWithBiometrics()
+        XCTAssertFalse(model.loadState.isUnlocked)
+        XCTAssertEqual(settings_hardwareKey(), yubiKey.key, "the database's key isn't replaced")
+
+        await model.setTouchIDSkipsHardwareKey(false)
+        model.selectHardwareKey(yubiKey.key)
         await model.unlockWithBiometrics()
         XCTAssertFalse(model.loadState.isUnlocked, "without the stored response the key is needed again")
+    }
+
+    private func settings_hardwareKey() -> VaultHardwareKey? {
+        settings.hardwareKey(for: vaultURL)
     }
 
     func testChangeMasterKeyRemovesTheHardwareKey() async throws {

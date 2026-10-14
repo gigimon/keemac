@@ -151,19 +151,22 @@ public final class YubiKeyDevice {
                 return
             }
         }
-        throw VaultError.hardwareKeyFailed(details: "The YubiKey didn't accept the request.")
+        throw VaultError.hardwareKeyFailed(.requestNotAccepted)
     }
 
+    /// Reads 7-byte parts until the key ends the response (sequence 0). Like ykpers, the number of parts
+    /// doesn't matter as long as the first `length` bytes and their CRC check out.
     private func readResponse(length: Int, mayBlock: Bool, isCancelled: () -> Bool, slot: Int = 0) throws -> [UInt8] {
         let first = try waitForPendingResponse(mayBlock: mayBlock, isCancelled: isCancelled, slot: slot)
         var data = Array(first[0..<7])
-        let limit = ((length + 2 + 6) / 7) * 7
+        // KeePassXC reads into a 64-byte buffer; a full frame is the most a key sends.
+        let limit = YubiKeyFrame.frameSize
         while true {
             let report = try transport.readFeatureReport()
             let status = report[7]
             guard status & YubiKeyFrame.responsePendingFlag != 0 else {
                 try? transport.writeFeatureReport(YubiKeyFrame.dummyReport)
-                throw VaultError.hardwareKeyFailed(details: "The response was cut short.")
+                throw VaultError.hardwareKeyFailed(.responseCutShort)
             }
             if status & YubiKeyFrame.sequenceMask == 0 {
                 break
@@ -171,12 +174,12 @@ public final class YubiKeyDevice {
             data += report[0..<7]
             guard data.count <= limit else {
                 try? transport.writeFeatureReport(YubiKeyFrame.dummyReport)
-                throw VaultError.hardwareKeyFailed(details: "The response is too long.")
+                throw VaultError.hardwareKeyFailed(.responseTooLong)
             }
         }
         try? transport.writeFeatureReport(YubiKeyFrame.dummyReport)
-        guard data.count == limit, YubiKeyFrame.crc16(data[0..<(length + 2)]) == YubiKeyFrame.crcOKResidual else {
-            throw VaultError.hardwareKeyFailed(details: "The response checksum is wrong.")
+        guard data.count >= length + 2, YubiKeyFrame.crc16(data[0..<(length + 2)]) == YubiKeyFrame.crcOKResidual else {
+            throw VaultError.hardwareKeyFailed(.checksumMismatch)
         }
         return Array(data[0..<length])
     }
@@ -219,6 +222,6 @@ public final class YubiKeyDevice {
         if waitingForTouch {
             throw VaultError.hardwareKeyTimedOut
         }
-        throw slot == 0 ? VaultError.hardwareKeyFailed(details: "No response.") : VaultError.hardwareKeySlotNotConfigured(slot: slot)
+        throw slot == 0 ? VaultError.hardwareKeyFailed(.noResponse) : VaultError.hardwareKeySlotNotConfigured(slot: slot)
     }
 }

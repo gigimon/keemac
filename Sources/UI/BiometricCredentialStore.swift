@@ -14,6 +14,12 @@ protocol BiometricCredentialStoring {
     /// Read right after `loadMasterPassword`, reusing its Touch ID authentication.
     func loadHardwareKeyResponse(for vaultURL: URL) -> VaultHardwareKeyResponse?
     func deleteHardwareKeyResponse(for vaultURL: URL)
+    /// Forgets the Touch ID authentication `loadMasterPassword` left for `loadHardwareKeyResponse`.
+    func endAuthentication()
+}
+
+extension BiometricCredentialStoring {
+    func endAuthentication() {}
 }
 
 enum BiometricCredentialError: LocalizedError {
@@ -111,6 +117,11 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         _ = SecItemDelete(baseQuery(for: vaultURL, service: Self.responseService) as CFDictionary)
     }
 
+    func endAuthentication() {
+        authenticatedContext?.invalidate()
+        authenticatedContext = nil
+    }
+
     private func saveProtected(_ passwordData: Data, query: [String: Any]) throws {
         let fallbackFlags: [SecAccessControlCreateFlags] = [.biometryCurrentSet, .biometryAny, .userPresence]
         var lastError: BiometricCredentialError?
@@ -158,6 +169,7 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
             throw BiometricCredentialError.unavailable(reason: policyError?.localizedDescription)
         }
 
+        endAuthentication()
         try await evaluateBiometricPolicy(using: context, prompt: prompt)
         authenticatedContext = context
 

@@ -20,5 +20,15 @@
 "Timed out waiting for touch." = "Не дождались касания.";
 "Slot %lld isn’t set up for challenge-response." = "Слот %lld не настроен для challenge-response.";
 "Cancelled waiting for the hardware key." = "Ожидание аппаратного ключа отменено.";
-"The hardware key didn’t respond: %@" = "Аппаратный ключ не ответил: %@";
 "Hardware keys are supported for KDBX 4 databases only. Open it in KeePassXC and save it as KDBX 4." = "Аппаратные ключи поддерживаются только для баз KDBX 4. Откройте базу в KeePassXC и сохраните её как KDBX 4.";
+"The YubiKey didn’t accept the request." = "YubiKey не принял запрос.";
+"The YubiKey’s response was cut short." = "Ответ YubiKey оборвался.";
+"The YubiKey’s response is too long." = "Ответ YubiKey слишком длинный.";
+"The YubiKey’s response checksum is wrong." = "Неверная контрольная сумма ответа YubiKey.";
+"The YubiKey didn’t respond." = "YubiKey не ответил.";
+"macOS didn’t allow access to the YubiKey. Allow KeeMac in System Settings → Privacy & Security → Input Monitoring." = "macOS не разрешил доступ к YubiKey. Разрешите KeeMac в Системных настройках → Конфиденциальность и безопасность → Мониторинг ввода.";
+"Could not open the YubiKey (%@)." = "Не удалось открыть YubiKey (%@).";
+"Reading from the YubiKey failed (%@)." = "Не удалось прочитать данные YubiKey (%@).";
+"Writing to the YubiKey failed (%@)." = "Не удалось записать данные в YubiKey (%@).";
+"The YubiKey hides its serial number. Turn on “Serial number visible” in YubiKey Manager." = "YubiKey скрывает серийный номер. Включите «Serial number visible» в YubiKey Manager.";
+"Hardware keys aren’t available here." = "Аппаратные ключи здесь недоступны.";

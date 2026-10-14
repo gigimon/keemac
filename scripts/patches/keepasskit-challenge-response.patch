@@ -1,5 +1,5 @@
 diff --git a/KeePassKit/IO/KDBX/KPKKdbxArchiver.m b/KeePassKit/IO/KDBX/KPKKdbxArchiver.m
-index 9328d0c..5ffaf3e 100644
+index 9328d0c..a136853 100644
 --- a/KeePassKit/IO/KDBX/KPKKdbxArchiver.m
 +++ b/KeePassKit/IO/KDBX/KPKKdbxArchiver.m
 @@ -21,6 +21,7 @@
@@ -21,7 +21,7 @@ index 9328d0c..5ffaf3e 100644
      
      NSArray *allEntries = [self.tree.allEntries arrayByAddingObjectsFromArray:self.tree.allHistoryEntries];
      NSMutableSet *tempBinaries = [[NSMutableSet alloc] init];
-@@ -164,7 +169,13 @@ - (NSData *)archiveTree:(NSError *__autoreleasing *)error {
+@@ -164,7 +169,10 @@ - (NSData *)archiveTree:(NSError *__autoreleasing *)error {
      KPKCreateError(error, KPKErrorUnsupportedKeyDerivation);
      return nil;
    }
@@ -29,9 +29,6 @@ index 9328d0c..5ffaf3e 100644
 +  NSData *keptSeed = self.key.keepsKeyDerivationSeed ? keyDerivation.parameters[KPKArgon2SaltParameter] ?: keyDerivation.parameters[KPKAESSeedOption] : nil;
 +  if(keptSeed.length == 0) {
 +    [keyDerivation randomize];
-+  }
-+  if(self.key.keepsKeyDerivationSeed) {
-+    self.tree.metaData.keyDerivationParameters = keyDerivation.parameters;
 +  }
    
    self.masterSeed = [NSData kpk_dataWithRandomBytes:32];
@@ -53,7 +50,7 @@ index e7ca11d..82bdbb7 100644
    NSData *hmacKey;
    NSData *keyData = [self.key computeKeyDataForFormat:KPKDatabaseFormatKdbx
 diff --git a/KeePassKit/Keys/KPKCompositeKey.h b/KeePassKit/Keys/KPKCompositeKey.h
-index 8c78435..55c946a 100644
+index 8c78435..b926375 100644
 --- a/KeePassKit/Keys/KPKCompositeKey.h
 +++ b/KeePassKit/Keys/KPKCompositeKey.h
 @@ -28,6 +28,13 @@
@@ -81,7 +78,7 @@ index 8c78435..55c946a 100644
 +@property (nonatomic, copy) KPKChallengeResponseHandler challengeResponseHandler;
 +/**
 + *  YES keeps the key derivation seed stored in the tree's metadata when saving instead of
-+ *  randomizing it, so a challenge-response key is asked only once. Saving writes the seed it used back.
++ *  randomizing it, so a challenge-response key is asked only once. Without a stored seed a new one is used.
 + */
 +@property (nonatomic) BOOL keepsKeyDerivationSeed;
  /** Creates a composite key with the supplied keys

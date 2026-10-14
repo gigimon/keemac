@@ -52,7 +52,7 @@ typedef NSData *(^KPKChallengeResponseHandler)(NSData *challenge, NSError **erro
 @property (nonatomic, copy) KPKChallengeResponseHandler challengeResponseHandler;
 /**
  *  YES keeps the key derivation seed stored in the tree's metadata when saving instead of
- *  randomizing it, so a challenge-response key is asked only once. Saving writes the seed it used back.
+ *  randomizing it, so a challenge-response key is asked only once. Without a stored seed a new one is used.
  */
 @property (nonatomic) BOOL keepsKeyDerivationSeed;
 /** Creates a composite key with the supplied keys

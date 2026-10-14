@@ -429,6 +429,7 @@ struct NewDatabaseView: View {
                         selected: hardwareKey,
                         connected: viewModel.connectedHardwareKeys,
                         isScanning: viewModel.isScanningHardwareKeys,
+                        scanError: viewModel.hardwareKeyScanError,
                         height: 34,
                         cornerRadius: 8,
                         identifierPrefix: "newDatabase.hardwareKey",

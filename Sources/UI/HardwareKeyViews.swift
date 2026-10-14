@@ -8,6 +8,8 @@ struct HardwareKeyPicker: View {
     let selected: VaultHardwareKey?
     let connected: [VaultHardwareKey]
     let isScanning: Bool
+    /// Shown instead of "no hardware key detected" when the scan failed.
+    var scanError: String?
     var height: CGFloat = 38
     var cornerRadius: CGFloat = 10
     /// Change Master Key shows the picker right away and has no way to collapse it.
@@ -37,7 +39,7 @@ struct HardwareKeyPicker: View {
             } else if isExpanded || alwaysExpanded {
                 if connected.isEmpty && !isScanning {
                     message(
-                        L("No hardware key detected — plug in your YubiKey"),
+                        scanError ?? L("No hardware key detected — plug in your YubiKey"),
                         symbol: "cable.connector.slash",
                         color: KM.textSecondary,
                         closeHelp: alwaysExpanded ? nil : L("Don’t use a hardware key")

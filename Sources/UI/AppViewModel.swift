@@ -147,6 +147,8 @@ public final class AppViewModel {
     /// Slots of the connected YubiKeys, from the last `refreshHardwareKeys()`.
     public private(set) var connectedHardwareKeys: [VaultHardwareKey] = []
     public private(set) var isScanningHardwareKeys = false
+    /// Why the last scan found nothing usable (no access, hidden serial number); nil when it worked.
+    public private(set) var hardwareKeyScanError: String?
     public var loadState: LoadState = .idle {
         didSet {
             if loadState.isUnlocked {
@@ -250,6 +252,8 @@ public final class AppViewModel {
     private let autoTyper: (any VaultAutoTyping)?
     private let hardwareKeyManager: (any VaultHardwareKeyManaging)?
     private let hardwareKeyDevice: any HardwareKeyChallenging
+    /// The response last written for Touch ID, so unchanged ones aren't written again on every save.
+    @ObservationIgnored private var storedHardwareKeyResponse: VaultHardwareKeyResponse?
     private var fileWatcher: VaultFileWatcher?
     private var isCheckingDisk = false
     private let biometricCredentialStore: any BiometricCredentialStoring
@@ -390,17 +394,25 @@ public final class AppViewModel {
         }
 
         cancelIdleLockTimer()
-        if let hardwareKey = selectedHardwareKey {
+        let hardwareKey = selectedHardwareKey
+        let keyFileURL = selectedKeyFileURL
+        loadState = .loading
+        if let hardwareKey {
             await refreshHardwareKeys()
             guard connectedHardwareKeys.contains(where: { $0.isSameSlot(as: hardwareKey) }) else {
                 loadState = .failed(VaultError.hardwareKeyNotFound(serial: hardwareKey.serial).errorDescription ?? "")
                 return
             }
         }
-        loadState = .loading
 
         do {
-            let loadedVault = try await loadSelectedVault(masterPassword: masterPassword, knownResponse: nil)
+            let loadedVault = try await loadVault(
+                at: selectedVaultURL,
+                masterPassword: masterPassword,
+                keyFileURL: keyFileURL,
+                hardwareKey: hardwareKey,
+                knownResponse: nil
+            )
 
             let touchIDEnabled = settingsStore.isTouchIDEnabled(for: selectedVaultURL)
             if touchIDEnabled && !masterPassword.isEmpty {
@@ -414,7 +426,7 @@ public final class AppViewModel {
                 biometricCredentialStore.deleteMasterPassword(for: selectedVaultURL)
                 clearBiometricCredentialMarker(for: selectedVaultURL)
             }
-            await rememberHardwareKey(for: selectedVaultURL, storedResponse: nil)
+            await rememberHardwareKey(hardwareKey, for: selectedVaultURL, storedResponse: nil)
 
             recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: selectedKeyFileURL)
             restoreFavoriteEntries()
@@ -434,43 +446,46 @@ public final class AppViewModel {
         }
     }
 
-    /// Opens the selected database with its key file and, when one is selected, its hardware key.
-    private func loadSelectedVault(masterPassword: String, knownResponse: VaultHardwareKeyResponse?) async throws -> LoadedVault {
-        guard let selectedVaultURL else {
-            throw VaultError.fileReadFailure(path: nil)
-        }
-        if let selectedHardwareKey {
+    /// Opens a database with its key file and, when one is chosen, its hardware key. The caller captures
+    /// the selection first: it can change while hardware keys are scanned.
+    private func loadVault(
+        at vaultURL: URL,
+        masterPassword: String,
+        keyFileURL: URL?,
+        hardwareKey: VaultHardwareKey?,
+        knownResponse: VaultHardwareKeyResponse?
+    ) async throws -> LoadedVault {
+        if let hardwareKey {
             guard let hardwareKeyManager else {
                 throw VaultError.missingDependency(name: "Hardware key support")
             }
             return try await hardwareKeyManager.loadVault(
-                from: selectedVaultURL,
+                from: vaultURL,
                 masterPassword: masterPassword,
-                keyFileURL: selectedKeyFileURL,
-                hardwareKey: selectedHardwareKey,
+                keyFileURL: keyFileURL,
+                hardwareKey: hardwareKey,
                 knownResponse: knownResponse
             )
         }
-        return try await vaultLoader.loadVault(
-            from: selectedVaultURL,
-            masterPassword: masterPassword,
-            keyFileURL: selectedKeyFileURL
-        )
+        return try await vaultLoader.loadVault(from: vaultURL, masterPassword: masterPassword, keyFileURL: keyFileURL)
     }
 
-    /// After an unlock: remembers the hardware key for this database (or forgets it when the database
-    /// opened without one) and keeps the Touch ID copy of its response current.
-    private func rememberHardwareKey(for vaultURL: URL, storedResponse: VaultHardwareKeyResponse?) async {
-        settingsStore.setHardwareKey(selectedHardwareKey, for: vaultURL)
-        guard selectedHardwareKey != nil,
+    /// After an unlock or a master key change: remembers the hardware key for this database (or forgets it
+    /// when the database opens without one) and keeps the Touch ID copy of its response current.
+    private func rememberHardwareKey(_ hardwareKey: VaultHardwareKey?, for vaultURL: URL, storedResponse: VaultHardwareKeyResponse?) async {
+        settingsStore.setHardwareKey(hardwareKey, for: vaultURL)
+        guard hardwareKey != nil,
               settingsStore.isTouchIDEnabled(for: vaultURL),
               settingsStore.touchIDSkipsHardwareKey(for: vaultURL) else {
             biometricCredentialStore.deleteHardwareKeyResponse(for: vaultURL)
+            storedHardwareKeyResponse = nil
             return
         }
-        guard let response = await hardwareKeyManager?.hardwareKeyResponse(), response != storedResponse else {
+        guard let response = await hardwareKeyManager?.hardwareKeyResponse(),
+              response != (storedResponse ?? storedHardwareKeyResponse) else {
             return
         }
+        storedHardwareKeyResponse = response
         do {
             try biometricCredentialStore.saveHardwareKeyResponse(response, for: vaultURL)
         } catch {
@@ -500,7 +515,14 @@ public final class AppViewModel {
         isScanningHardwareKeys = true
         defer { isScanningHardwareKeys = false }
         let device = hardwareKeyDevice
-        let keys = (try? await Task.detached { try device.connectedKeys() }.value) ?? []
+        let keys: [VaultHardwareKey]
+        do {
+            keys = try await Task.detached { try device.connectedKeys() }.value
+            hardwareKeyScanError = nil
+        } catch {
+            keys = []
+            hardwareKeyScanError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
         connectedHardwareKeys = keys
         // Pick up the model name and touch setting of the remembered slot.
         if let selected = selectedHardwareKey, let current = keys.first(where: { $0.isSameSlot(as: selected) }), current != selected {
@@ -518,7 +540,16 @@ public final class AppViewModel {
             return
         }
         settingsStore.setTouchIDSkipsHardwareKey(skips, for: selectedVaultURL)
-        await rememberHardwareKey(for: selectedVaultURL, storedResponse: nil)
+        await rememberHardwareKey(selectedHardwareKey, for: selectedVaultURL, storedResponse: nil)
+    }
+
+    /// The KDF seed may have changed (new encryption settings, a merge with another client's save):
+    /// refreshes the response Touch ID keeps for unlocking without the key.
+    func refreshStoredHardwareKeyResponse() async {
+        guard let selectedVaultURL, selectedHardwareKey != nil, case .loaded = loadState else {
+            return
+        }
+        await rememberHardwareKey(selectedHardwareKey, for: selectedVaultURL, storedResponse: nil)
     }
 
     /// Creates a new database file and opens it right away.
@@ -564,13 +595,25 @@ public final class AppViewModel {
 
         do {
             let prompt = L("Unlock \(selectedVaultURL.lastPathComponent)")
+            let hardwareKey = selectedHardwareKey
+            let keyFileURL = selectedKeyFileURL
             let password = try await biometricCredentialStore.loadMasterPassword(for: selectedVaultURL, prompt: prompt)
-            let storedResponse = selectedHardwareKey != nil && settingsStore.touchIDSkipsHardwareKey(for: selectedVaultURL)
-                ? biometricCredentialStore.loadHardwareKeyResponse(for: selectedVaultURL)
-                : nil
+            // Only a response from the chosen slot stands in for it.
+            let storedResponse = hardwareKey.flatMap { key in
+                settingsStore.touchIDSkipsHardwareKey(for: selectedVaultURL)
+                    ? biometricCredentialStore.loadHardwareKeyResponse(for: selectedVaultURL).flatMap { $0.belongs(to: key) ? $0 : nil }
+                    : nil
+            }
+            biometricCredentialStore.endAuthentication()
 
-            let loadedVault = try await loadSelectedVault(masterPassword: password, knownResponse: storedResponse)
-            await rememberHardwareKey(for: selectedVaultURL, storedResponse: storedResponse)
+            let loadedVault = try await loadVault(
+                at: selectedVaultURL,
+                masterPassword: password,
+                keyFileURL: keyFileURL,
+                hardwareKey: hardwareKey,
+                knownResponse: storedResponse
+            )
+            await rememberHardwareKey(hardwareKey, for: selectedVaultURL, storedResponse: storedResponse)
             recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: selectedKeyFileURL)
             restoreFavoriteEntries()
             syncEntryCollections(with: loadedVault)
@@ -678,6 +721,9 @@ public final class AppViewModel {
         cancelIdleLockTimer()
         stopWatchingVault()
         lockGeneration += 1
+        // A save or merge waiting for the hardware key mustn't hold the lock up.
+        HardwareKeyPromptController.shared.cancelCurrent()
+        storedHardwareKeyResponse = nil
         AutoTypeController.shared.cancelTyping()
         // Quick Access locks right after copying; the copied secret keeps its own auto-clear timer.
         if reason != .quickAccess {
@@ -975,6 +1021,7 @@ public final class AppViewModel {
         syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         await absorbPendingMerge()
+        await refreshStoredHardwareKeyResponse()
         registerUserActivity()
     }
 
@@ -1060,7 +1107,7 @@ public final class AppViewModel {
             case .remove:
                 selectedHardwareKey = nil
             }
-            await rememberHardwareKey(for: selectedVaultURL, storedResponse: nil)
+            await rememberHardwareKey(selectedHardwareKey, for: selectedVaultURL, storedResponse: nil)
         }
         // The file is re-encrypted by now: remember its key even if the database locked meanwhile.
         selectedKeyFileURL = keyFileURL
@@ -1237,6 +1284,7 @@ public final class AppViewModel {
             loadState = .loaded(result.vault)
             hasPendingDiskChange = false
             publishMerge(result.summary, from: nil)
+            await refreshStoredHardwareKeyResponse()
             syncStatus = .synced(Date())
         } catch {
             SecureLogger.logUnlockFailure(error)
@@ -1456,6 +1504,7 @@ public final class AppViewModel {
         }
         if let summary = await synchronizer.takePendingMergeSummary() {
             publishMerge(summary, from: nil)
+            await refreshStoredHardwareKeyResponse()
         }
         // Every save merges the file on disk first, so nothing is left pending.
         hasPendingDiskChange = false

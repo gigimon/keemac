@@ -39,10 +39,17 @@ public struct VaultHardwareKey: Codable, Hashable, Sendable, Identifiable {
 public struct VaultHardwareKeyResponse: Codable, Equatable, Sendable {
     public var challenge: Data
     public var response: Data
+    /// The slot that answered; a response only stands in for that slot.
+    public var key: VaultHardwareKey?
 
-    public init(challenge: Data, response: Data) {
+    public init(challenge: Data, response: Data, key: VaultHardwareKey? = nil) {
         self.challenge = challenge
         self.response = response
+        self.key = key
+    }
+
+    public func belongs(to other: VaultHardwareKey) -> Bool {
+        key.map { $0.isSameSlot(as: other) } ?? false
     }
 }
 

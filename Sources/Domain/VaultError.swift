@@ -22,7 +22,7 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
     /// The user cancelled waiting for the hardware key.
     case hardwareKeyCancelled
     /// Talking to the hardware key failed.
-    case hardwareKeyFailed(details: String)
+    case hardwareKeyFailed(HardwareKeyFailure)
     /// KeePassXC's KDBX 3.1 challenge-response scheme isn't supported.
     case hardwareKeyUnsupportedFormat
 
@@ -54,10 +54,59 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
             return L("Slot \(slot) isn’t set up for challenge-response.")
         case .hardwareKeyCancelled:
             return L("Cancelled waiting for the hardware key.")
-        case .hardwareKeyFailed(let details):
-            return L("The hardware key didn’t respond: \(details)")
+        case .hardwareKeyFailed(let failure):
+            return failure.message
         case .hardwareKeyUnsupportedFormat:
             return L("Hardware keys are supported for KDBX 4 databases only. Open it in KeePassXC and save it as KDBX 4.")
         }
+    }
+}
+
+/// Why talking to a hardware key failed, below "not found", "timed out" and "slot not set up".
+public enum HardwareKeyFailure: Equatable, Sendable {
+    case requestNotAccepted
+    case responseCutShort
+    case responseTooLong
+    case checksumMismatch
+    case noResponse
+    /// macOS didn't allow opening the key (Input Monitoring).
+    case accessDenied
+    case openFailed(code: Int32)
+    case readFailed(code: Int32)
+    case writeFailed(code: Int32)
+    /// The key doesn't show its serial number over the API.
+    case serialHidden
+    /// This KeeMac component has no hardware key support (helper loaders).
+    case unavailable
+
+    var message: String {
+        switch self {
+        case .requestNotAccepted:
+            return L("The YubiKey didn’t accept the request.")
+        case .responseCutShort:
+            return L("The YubiKey’s response was cut short.")
+        case .responseTooLong:
+            return L("The YubiKey’s response is too long.")
+        case .checksumMismatch:
+            return L("The YubiKey’s response checksum is wrong.")
+        case .noResponse:
+            return L("The YubiKey didn’t respond.")
+        case .accessDenied:
+            return L("macOS didn’t allow access to the YubiKey. Allow KeeMac in System Settings → Privacy & Security → Input Monitoring.")
+        case .openFailed(let code):
+            return L("Could not open the YubiKey (\(Self.hex(code))).")
+        case .readFailed(let code):
+            return L("Reading from the YubiKey failed (\(Self.hex(code))).")
+        case .writeFailed(let code):
+            return L("Writing to the YubiKey failed (\(Self.hex(code))).")
+        case .serialHidden:
+            return L("The YubiKey hides its serial number. Turn on “Serial number visible” in YubiKey Manager.")
+        case .unavailable:
+            return L("Hardware keys aren’t available here.")
+        }
+    }
+
+    private static func hex(_ code: Int32) -> String {
+        String(format: "0x%08x", UInt32(bitPattern: code))
     }
 }

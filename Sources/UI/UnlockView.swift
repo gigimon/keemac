@@ -78,6 +78,7 @@ struct UnlockView: View {
                     selected: viewModel.selectedHardwareKey,
                     connected: viewModel.connectedHardwareKeys,
                     isScanning: viewModel.isScanningHardwareKeys,
+                    scanError: viewModel.hardwareKeyScanError,
                     isDisabled: isLoading,
                     identifierPrefix: "unlock.hardwareKey",
                     onSelect: { viewModel.selectHardwareKey($0) },

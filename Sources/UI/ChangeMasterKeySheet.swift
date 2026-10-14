@@ -328,6 +328,7 @@ struct ChangeMasterKeySheet: View {
                     selected: chosenHardwareKey,
                     connected: viewModel.connectedHardwareKeys,
                     isScanning: viewModel.isScanningHardwareKeys,
+                    scanError: viewModel.hardwareKeyScanError,
                     height: 34,
                     cornerRadius: 8,
                     alwaysExpanded: true,

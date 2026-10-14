@@ -49,9 +49,18 @@ Review notes:
 - [x] Step 5: UI — unlock key picker, New Database, Change Master Key sheet, Master Key card, touch panel; localization (ru).
 - [x] Step 6: UI testing hooks (emulator).
 - [x] Step 7: Unit tests (formula vs. KeePassXC, emulator round trips, seed pinning, merge with new seed, Touch ID option) and UI tests.
-- [ ] Step 8: README / CLAUDE.md, code review.
+- [x] Step 8: README / CLAUDE.md, code review.
 
 ## Testing without hardware
 
 - Formula checked against KeePassXC's code path (`CompositeKey::rawKey(&seed)`, PKCS#7 padding) with a fixed secret; a KeePassXC-made test database with a known HMAC secret if one can be found or produced.
 - The HID frame format (CRC-16, 70-byte frames over 8-byte feature reports, status/touch flags) is unit-tested on byte level against ykpers' documented frames; real-device behaviour must be confirmed on an actual YubiKey later.
+
+## Review fixes (docs/reviews/2026-10-14-branch-feature-hardware-key.md)
+
+- Database Settings change the KDF parameters (and seed) only when the key derivation changes; renaming no longer asks the key. The Touch ID response is refreshed after new encryption settings and merges.
+- The archiver no longer writes KDF parameters back into the metadata (it bumped `SettingsChanged`). Note: plain databases also get a new `SettingsChanged` on every save; that predates this feature.
+- The driver reads response parts until the key ends them (as ykpers), checking only the first bytes and their CRC.
+- Stored Touch ID responses carry the slot they came from and only stand in for that slot.
+- Locking cancels a pending hardware key panel; Touch ID's authenticated context is dropped after reading the response; unlock captures the selection before scanning; device failures are a localized `HardwareKeyFailure`; keys with a hidden serial number are reported; found devices are cached between challenges.
+- Known limits: additional databases and "merge from another database" don't take hardware keys; the derived key is cached in the composite key for the session (released with the session). The real-device protocol (FIDO interface, Input Monitoring) still needs a check on an actual YubiKey.

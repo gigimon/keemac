@@ -12,9 +12,9 @@ final class YubiKeyHIDTransport: YubiKeyTransport {
         let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         guard result == kIOReturnSuccess else {
             if result == kIOReturnNotPermitted {
-                throw VaultError.hardwareKeyFailed(details: "macOS didn't allow access to the YubiKey (Privacy & Security → Input Monitoring).")
+                throw VaultError.hardwareKeyFailed(.accessDenied)
             }
-            throw VaultError.hardwareKeyFailed(details: "Could not open the YubiKey (\(String(format: "0x%08x", result))).")
+            throw VaultError.hardwareKeyFailed(.openFailed(code: result))
         }
     }
 
@@ -27,7 +27,7 @@ final class YubiKeyHIDTransport: YubiKeyTransport {
         var length = CFIndex(report.count)
         let result = IOHIDDeviceGetReport(device, kIOHIDReportTypeFeature, 0, &report, &length)
         guard result == kIOReturnSuccess, length == report.count else {
-            throw VaultError.hardwareKeyFailed(details: "Reading from the YubiKey failed (\(String(format: "0x%08x", result))).")
+            throw VaultError.hardwareKeyFailed(.readFailed(code: result))
         }
         return report
     }
@@ -37,7 +37,7 @@ final class YubiKeyHIDTransport: YubiKeyTransport {
             IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 0, $0.baseAddress!, $0.count)
         }
         guard result == kIOReturnSuccess else {
-            throw VaultError.hardwareKeyFailed(details: "Writing to the YubiKey failed (\(String(format: "0x%08x", result))).")
+            throw VaultError.hardwareKeyFailed(.writeFailed(code: result))
         }
     }
 }
@@ -54,6 +54,8 @@ public final class YubiKeyHIDChallenger: HardwareKeyChallenging, @unchecked Send
 
     /// One request at a time: the OTP application keeps a single frame in flight.
     private let lock = NSLock()
+    /// Keys found by the last scan; a challenge opens its key directly and scans again only when that fails.
+    private var knownDevices: [UInt32: DeviceInfo] = [:]
 
     public init() {}
 
@@ -78,10 +80,15 @@ public final class YubiKeyHIDChallenger: HardwareKeyChallenging, @unchecked Send
 
     public func challengeResponse(_ challenge: Data, key: VaultHardwareKey, isCancelled: @escaping @Sendable () -> Bool) throws -> Data {
         try lock.withLock {
-            guard let info = try devicesBySerial()[key.serial] else {
-                throw VaultError.hardwareKeyNotFound(serial: key.serial)
+            let transport: YubiKeyHIDTransport
+            if let known = knownDevices[key.serial], let opened = try? YubiKeyHIDTransport(device: known.device) {
+                transport = opened
+            } else {
+                guard let info = try devicesBySerial()[key.serial] else {
+                    throw VaultError.hardwareKeyNotFound(serial: key.serial)
+                }
+                transport = try YubiKeyHIDTransport(device: info.device)
             }
-            let transport = try YubiKeyHIDTransport(device: info.device)
             let yubiKey = YubiKeyDevice(transport: transport)
             let padded = HardwareKeyChallenge.padded(challenge)
             return Data(try yubiKey.challengeResponse(slot: key.slot, challenge: Array(padded), isCancelled: isCancelled))
@@ -128,6 +135,8 @@ public final class YubiKeyHIDChallenger: HardwareKeyChallenging, @unchecked Send
                 let yubiKey = YubiKeyDevice(transport: transport)
                 let status = try yubiKey.status()
                 guard let serial = try yubiKey.serial() else {
+                    // KeeMac tells keys apart (and remembers them) by serial number, like KeePassXC.
+                    firstError = firstError ?? VaultError.hardwareKeyFailed(.serialHidden)
                     continue
                 }
                 if result[serial] == nil {
@@ -137,6 +146,7 @@ public final class YubiKeyHIDChallenger: HardwareKeyChallenging, @unchecked Send
                 firstError = firstError ?? error
             }
         }
+        knownDevices = result
         if result.isEmpty, let firstError, !candidates.isEmpty {
             throw firstError
         }

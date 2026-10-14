@@ -42,7 +42,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         init(key: VaultHardwareKey, device: any HardwareKeyChallenging, knownResponse: VaultHardwareKeyResponse?) {
             self.key = key
             self.device = device
-            if let knownResponse {
+            if let knownResponse, knownResponse.belongs(to: key) {
                 responses[knownResponse.challenge] = knownResponse.response
             }
         }
@@ -1028,7 +1028,16 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
         meta.databaseName = settings.name
         meta.databaseDescription = settings.details
-        meta.keyDerivationParameters = try Self.makeKeyDerivationParameters(from: settings)
+        // A new seed would be a new hardware key challenge (and void a stored Touch ID response), so the
+        // parameters only change when the key derivation itself does.
+        let current = Self.readDatabaseSettings(from: currentSession.tree)
+        if current.kdf != settings.kdf
+            || current.argonIterations != settings.argonIterations
+            || current.argonMemoryMiB != settings.argonMemoryMiB
+            || current.argonParallelism != settings.argonParallelism
+            || current.aesRounds != settings.aesRounds {
+            meta.keyDerivationParameters = try Self.makeKeyDerivationParameters(from: settings)
+        }
         let cipherUUID = Self.cipherUUID(for: settings.cipher)
         if meta.cipherUUID != cipherUUID {
             meta.cipherUUID = cipherUUID
@@ -1303,7 +1312,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
               let response = responder.knownResponse(for: challenge) else {
             return nil
         }
-        return VaultHardwareKeyResponse(challenge: challenge, response: response)
+        return VaultHardwareKeyResponse(challenge: challenge, response: response, key: responder.key)
     }
 
     /// The hardware key the open database's master key includes.
@@ -2382,7 +2391,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         }
         if let hardwareKey {
             guard let hardwareKeys else {
-                throw VaultError.hardwareKeyFailed(details: "Hardware keys are not available.")
+                throw VaultError.hardwareKeyFailed(.unavailable)
             }
             let responder = HardwareKeyResponder(key: hardwareKey, device: hardwareKeys, knownResponse: knownResponse)
             return HardwareCompositeKey(keys: keyParts, responder: responder)

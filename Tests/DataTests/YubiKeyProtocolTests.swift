@@ -13,6 +13,8 @@ private final class SimulatedYubiKey: YubiKeyTransport {
     /// Status reports with the touch flag before answering; -1 never answers (times out).
     var touchPolls = 0
     var neverAnswersTouch = false
+    /// Sends the response padded to a whole frame, like firmware that doesn't trim it.
+    var padsResponse = false
 
     private(set) var frames: [[UInt8]] = []
     private(set) var dummyWrites = 0
@@ -100,7 +102,7 @@ private final class SimulatedYubiKey: YubiKeyTransport {
     private func respond(with data: [UInt8]) {
         let crc = ~YubiKeyFrame.crc16(data)
         var bytes = data + [UInt8(crc & 0xff), UInt8(crc >> 8)]
-        while bytes.count % 7 != 0 {
+        while bytes.count % 7 != 0 || (padsResponse && bytes.count < 63) {
             bytes.append(0)
         }
         response = stride(from: 0, to: bytes.count, by: 7).enumerated().map { index, offset in
@@ -161,6 +163,16 @@ final class YubiKeyProtocolTests: XCTestCase {
         )
         XCTAssertEqual(Data(response), SoftwareHardwareKey.response(secret: secret, challenge: challenge))
         XCTAssertEqual(simulated.frames.last?[64], YubiKeyCommand.challengeHMAC2)
+    }
+
+    func testResponsePaddedToMoreParts() throws {
+        let simulated = SimulatedYubiKey()
+        simulated.secrets[2] = secret
+        simulated.padsResponse = true
+        XCTAssertEqual(try device(simulated).serial(), 12_345_678)
+        let challenge = Data(repeating: 5, count: 32)
+        let response = try device(simulated).challengeResponse(slot: 2, challenge: Array(HardwareKeyChallenge.padded(challenge)), isCancelled: { false })
+        XCTAssertEqual(Data(response), SoftwareHardwareKey.response(secret: secret, challenge: challenge))
     }
 
     func testWaitsForTouch() throws {
