@@ -41,6 +41,7 @@ swift test                       # XCTest suite (DataTests)
 | `Sources/BrowserIntegration` | KeePassXC-Browser protocol (`BrowserMessageHandler`), `BrowserSocketServer`, `NativeMessagingHosts`, NaCl wrapper |
 | `Sources/CTweetNaCl` | Vendored TweetNaCl (public domain) |
 | `Sources/Proxy` | `keemac-proxy`: native messaging host, relays stdio to KeeMac's socket |
+| `Sources/HardwareKey` | YubiKey challenge-response over USB HID (`YubiKeyDevice`, `YubiKeyHIDChallenger`) |
 | `Sources/UI` | `AppViewModel`, all SwiftUI views, settings store, clipboard, theme |
 | `Sources/App` | `@main` app, menu bar extra, main window controller |
 | `Tests/DataTests` | Loader tests against temporary KDBX files |
@@ -69,6 +70,13 @@ swift test                       # XCTest suite (DataTests)
 - KeePassKit marks the bin by `trashUuid` even when `useTrash` is off, so turning the bin off also clears `trashUuid` (the group then shows as a normal one). `VaultSummary.usesRecycleBin` switches delete prompts to "Delete permanently".
 - History "unlimited" is written as `Int32.max`: KeePass/KeePassXC read -1 as unlimited, KeePassKit reads it as "history off". Removing icons or emptying the bin while turning it off clears the undo stack.
 - UI testing: `KEEMAC_UI_TEST_KEY_FILE` replaces the open/save panels of the Change Master Key sheet.
+
+## Hardware keys
+
+- Plan: `docs/plans/2026-10-14-hardware-key.md`. YubiKey HMAC-SHA1 challenge-response in KeePassXC's KDBX 4 scheme: the KDF seed is the challenge (PKCS#7-padded to 64 bytes), `SHA-256(response)` is hashed after the password and key file before the KDF. KeePassKit doesn't support it, so `scripts/patches/keepasskit-*.patch` (applied by `build_vendor_frameworks.sh`) adds `KPKCompositeKey.challengeResponseHandler` and `keepsKeyDerivationSeed`.
+- The loader wraps such keys in `HardwareCompositeKey`; its `HardwareKeyResponder` caches responses per seed. Saves keep the seed (one challenge per session); a new hardware key gets a new seed, keeping it keeps the seed. A file rewritten by another client with a new seed asks the key once on the next merge. KDBX 3.1 with a hardware key throws `hardwareKeyUnsupportedFormat`; adding one saves KDBX 4.
+- `HardwareKey` module: `YubiKeyDevice` speaks the OTP application's feature-report protocol over a `YubiKeyTransport` (tested against a simulated key), `YubiKeyHIDChallenger` finds keys with IOKit (FIDO interface first, like ykpers, to avoid Input Monitoring). The file doesn't record the key; `AppSettingsStore` remembers it per database, plus the "Touch ID without the hardware key" option, whose response the biometric store keeps next to the password.
+- UI: `HardwareKeyPicker` (unlock, New Database, Change Master Key), `HardwareKeyPrompt.swift` (`PromptingHardwareKeyChallenger` shows the floating touch panel with Try Again / Cancel). UI testing: `KEEMAC_UI_TEST_HARDWARE_KEY=<hex secret>` (YubiKey 12345678, slot 2), `KEEMAC_UI_TEST_HARDWARE_KEY_TOUCH=1` / `timeout`; without it no keys are found.
 
 ## Undo, import and export
 
@@ -115,4 +123,4 @@ swift test                       # XCTest suite (DataTests)
 
 - KeeMac is GPL-3.0-or-later (`LICENSE`) because it links KeePassKit (GPLv3).
 - Third-party license texts live in `Sources/UI/Resources/Licenses` and are shown in Settings → About (`AboutLicenses.swift`).
-- Vendored revisions are pinned in `scripts/build_vendor_frameworks.sh`; keep them in sync with `AboutLicenses.swift` and the README table when updating.
+- Vendored revisions are pinned in `scripts/build_vendor_frameworks.sh`; keep them in sync with `AboutLicenses.swift` and the README table when updating. KeeMac's KeePassKit changes live in `scripts/patches` and are part of the GPL source.

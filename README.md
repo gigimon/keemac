@@ -8,6 +8,7 @@ A native macOS password manager for KeePass (`.kdbx`) databases, built with Swif
 
 ### Databases
 - Open local `.kdbx` files with a master password, a key file or both.
+- YubiKey HMAC-SHA1 challenge-response (slot 1 or 2) as part of the master key, compatible with KeePassXC (KDBX 4). Add it when creating a database or in Change Master Key; the unlock screen remembers it per database. The key is asked once per session: saves keep the KDF seed, so a slot that needs a touch isn't touched on every change. Optionally Touch ID can unlock without the key (Database Settings → Master Key).
 - Create new databases: name and location, master password and/or key file (choose or generate), encryption presets or a custom format, cipher (AES-256, ChaCha20, Twofish), KDF (Argon2id, Argon2d, AES-KDF) calibrated to the unlock time you pick.
 - Database Settings (⇧⌘,): name and description, templates group, cipher and KDF with the estimated unlock time, recycle bin on/off and its group (turning it off asks whether to empty it or keep it as a group), history limits per entry (versions and size, for new changes), changing the master key (current password, new password and/or a chosen, generated or removed key file), removing unused custom icons, additional databases.
 - Recent databases are remembered (security-scoped bookmarks); Touch ID unlock can be enabled per database. Removing a database from the recent list also deletes its Touch ID password and KeeMac's copy of its last save.
@@ -132,6 +133,7 @@ Not covered: a master key changed on another device, clocks that disagree betwee
   - `CTweetNaCl`: TweetNaCl for the browser connection's encryption.
   - `SSHAgent`: SSH agent socket and protocol, SSH key reading, signing and generation, `~/.ssh/config` setup.
   - `CBcryptPBKDF`: bcrypt-pbkdf from OpenSSH for passphrase-protected SSH keys.
+  - `HardwareKey`: YubiKey OTP application over USB HID (IOKit): slots, serial number, HMAC-SHA1 challenge-response.
   - `Proxy`: `keemac-proxy`, the native messaging host browsers start.
   - `UI`: `AppViewModel`, SwiftUI views, settings store, clipboard, theme.
   - `App`: app lifecycle, main window, menu bar extra.
@@ -147,6 +149,7 @@ Not covered: a master key changed on another device, clocks that disagree betwee
 │   ├── CTweetNaCl
 │   ├── Data
 │   ├── Domain
+│   ├── HardwareKey
 │   ├── Proxy
 │   ├── SSHAgent
 │   └── UI
@@ -215,6 +218,7 @@ Run the UI tests locally (needs `brew install xcodegen`; don't touch the keyboar
 - macOS only.
 - Browser autofill doesn't support passkeys or Safari.
 - Import doesn't read 1Password `.1pux`, Bitwarden JSON or other non-CSV formats.
+- Hardware keys: YubiKey challenge-response over USB only (no NFC, no KeeChallenge, no KeePassXC's KDBX 3.1 scheme).
 
 ## License
 
@@ -230,7 +234,7 @@ copyright notice and full license text; the texts live in `Sources/UI/Resources/
 
 | Component | License | Source |
 | --- | --- | --- |
-| [KeePassKit](https://github.com/MacPass/KeePassKit) | GPL-3.0-or-later | `b5cf50ee4ebd67cb355792d7813965fe3ac7125e` |
+| [KeePassKit](https://github.com/MacPass/KeePassKit) | GPL-3.0-or-later | `b5cf50ee4ebd67cb355792d7813965fe3ac7125e` + `scripts/patches` |
 | [KissXML](https://github.com/robbiehanson/KissXML) | BSD | `990cdef080213b5a3f0d9709b845d553bd3ddb97` |
 | [Argon2](https://github.com/P-H-C/phc-winner-argon2) (in KeePassKit) | CC0-1.0 or Apache-2.0 | `b31aa322566a8559403d419b2e9cd3f57957e394` |
 | Twofish by Niels Ferguson (in KeePassKit) | Permissive, attribution | KeePassKit tree |
@@ -249,6 +253,7 @@ The vendored frameworks are built from the pinned revisions above:
 bash scripts/build_vendor_frameworks.sh
 ```
 
+KeeMac's changes to KeePassKit (challenge-response keys) are applied from `scripts/patches`.
 Override `KEEPASSKIT_REF` / `KISSXML_REF` to build other revisions, and update the table above
 and `Sources/UI/AboutLicenses.swift` when you do.
 
