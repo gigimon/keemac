@@ -167,7 +167,7 @@ public struct VaultBrowserView: View {
     @State private var searchText: String = ""
     @State private var selectedSidebarItemID: String?
     @State private var expandedGroupPaths: Set<String>
-    @State private var selectedEntryID: VaultEntry.ID?
+    @State private var selection = EntrySelection()
     @State private var editingEntryID: VaultEntry.ID?
     /// Opened from an Auto-Type error: its editor starts with the Auto-Type section expanded.
     @State private var autoTypeEditEntryID: VaultEntry.ID?
@@ -473,6 +473,9 @@ public struct VaultBrowserView: View {
         .onChange(of: editingEntryID) { _, id in
             if id == nil {
                 autoTypeEditEntryID = nil
+            } else {
+                // Editing works on one entry.
+                selection.collapse()
             }
         }
         .onChange(of: passwordHealthRequest, initial: true) { _, request in
@@ -1196,6 +1199,13 @@ public struct VaultBrowserView: View {
                 }
             }
             .keyboardShortcut("d", modifiers: [.command])
+
+            // Only while the list has focus, so text fields keep their own Select All.
+            Button("") {
+                selectAllEntries()
+            }
+            .keyboardShortcut("a", modifiers: [.command])
+            .disabled(!isListFocused)
         }
         .frame(width: 0, height: 0)
         .opacity(0)
@@ -1277,12 +1287,27 @@ public struct VaultBrowserView: View {
         .focusable()
         .focused($isListFocused)
         .focusEffectDisabled()
-        .onKeyPress(.downArrow) {
-            moveSelection(by: 1)
+        .onKeyPress(keys: [.downArrow]) { press in
+            if press.modifiers.contains(.shift) {
+                extendSelection(by: 1)
+            } else {
+                moveSelection(by: 1)
+            }
             return .handled
         }
-        .onKeyPress(.upArrow) {
-            moveSelection(by: -1)
+        .onKeyPress(keys: [.upArrow]) { press in
+            if press.modifiers.contains(.shift) {
+                extendSelection(by: -1)
+            } else {
+                moveSelection(by: -1)
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            guard selection.isMultiple else {
+                return .ignored
+            }
+            selection.collapse()
             return .handled
         }
     }
@@ -1314,8 +1339,7 @@ public struct VaultBrowserView: View {
         .contentShape(Rectangle())
         .padding(.horizontal, 8)
         .onTapGesture {
-            selectedEntryID = entry.id
-            isListFocused = true
+            handleClick(on: entry)
         }
         .contextMenu {
             entryContextMenu(entry)
@@ -1323,7 +1347,7 @@ public struct VaultBrowserView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entryAccessibilityLabel(entry))
         .accessibilityIdentifier("entry.\(entry.title)")
-        .accessibilityAddTraits(selectedEntryID == entry.id ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(isSelected(entry) ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction {
             selectedEntryID = entry.id
         }
@@ -1331,7 +1355,7 @@ public struct VaultBrowserView: View {
     }
 
     private func compactEntryRow(_ entry: VaultEntry) -> some View {
-        let isSelected = entry.id == selectedEntry?.id
+        let isSelected = self.isSelected(entry)
 
         return HStack(spacing: 8) {
             if showsEntryIcons {
@@ -1367,7 +1391,7 @@ public struct VaultBrowserView: View {
     }
 
     private func richEntryRow(_ entry: VaultEntry) -> some View {
-        let isSelected = entry.id == selectedEntry?.id
+        let isSelected = self.isSelected(entry)
         let isFavorite = favoriteEntryIDs.contains(entry.id)
 
         return HStack(spacing: 11) {
@@ -1538,7 +1562,14 @@ public struct VaultBrowserView: View {
     @ViewBuilder
     private var detailColumn: some View {
         Group {
-            if let entry = selectedEntry {
+            if selection.isMultiple {
+                // Replaced by the selection panel in Step 4.
+                Text(L("\(selection.ids.count) entries selected"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(KM.textSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("selection.count")
+            } else if let entry = selectedEntry {
                 if editingEntryID == entry.id {
                     EntryEditorPane(
                         entry: entry,
@@ -1763,6 +1794,51 @@ public struct VaultBrowserView: View {
             .map { GroupOption(path: $0.path, title: $0.title, depth: GroupPathFormatter.depth(of: $0.path, rootPath: rootPath)) }
     }
 
+    /// The focused entry: the card, the keyboard cursor. Setting it selects that entry alone.
+    private var selectedEntryID: VaultEntry.ID? {
+        get { selection.focus }
+        nonmutating set { selection.select(newValue) }
+    }
+
+    private func isSelected(_ entry: VaultEntry) -> Bool {
+        selection.isMultiple ? selection.contains(entry.id) : entry.id == selectedEntry?.id
+    }
+
+    /// Database of each listed entry (nil for the main one), for the one-database rule of a selection.
+    private func databaseKeys(_ entries: [VaultEntry]) -> (UUID) -> String? {
+        let keys = Dictionary(entries.map { ($0.id, DatabaseScope.key(of: $0.groupPath)) }, uniquingKeysWith: { first, _ in first })
+        return { keys[$0] ?? nil }
+    }
+
+    /// Click, ⌘-click (toggle) and ⇧-click (range).
+    private func handleClick(on entry: VaultEntry) {
+        let entries = filteredEntries
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command) {
+            selection.toggle(entry.id, database: databaseKeys(entries))
+        } else if flags.contains(.shift) {
+            selection.extend(to: entry.id, in: entries.map(\.id), database: databaseKeys(entries))
+        } else {
+            selectedEntryID = entry.id
+        }
+        isListFocused = true
+    }
+
+    private func extendSelection(by delta: Int) {
+        let entries = filteredEntries
+        guard !entries.isEmpty else {
+            return
+        }
+        let currentIndex = entries.firstIndex { $0.id == selectedEntry?.id } ?? -1
+        let nextIndex = min(max(currentIndex + delta, 0), entries.count - 1)
+        selection.extend(to: entries[nextIndex].id, in: entries.map(\.id), database: databaseKeys(entries))
+    }
+
+    private func selectAllEntries() {
+        let entries = filteredEntries
+        selection.selectAll(in: entries.map(\.id), database: databaseKeys(entries))
+    }
+
     private var selectedEntry: VaultEntry? {
         guard let selectedEntryID else {
             return filteredEntries.first
@@ -1909,7 +1985,7 @@ public struct VaultBrowserView: View {
             selectedSidebarItemID = LibrarySelection.allItems.id
         }
 
-        if let selectedEntryID, filteredEntries.contains(where: { $0.id == selectedEntryID }) {
+        if selection.trim(to: filteredEntries.map(\.id)) {
             return
         }
         selectedEntryID = filteredEntries.first?.id

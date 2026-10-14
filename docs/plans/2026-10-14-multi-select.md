@@ -50,9 +50,9 @@ Stack: Swift 6.1, SwiftUI (custom entry list in `VaultBrowserView`, no `List(sel
 - [x] Transfer of several entries by drag, reusing `makeTransferPayload` / `receiveTransfer` / `trashTransferredEntries` and the conflict sheet (`prepareTransfer(entryIDs:)` already takes several entries; the drag is wired in Step 4)
 
 ## Step 3: Selection model in the entry list
-- [ ] Replace `selectedEntryID` with a selection (`Set<UUID>` plus anchor and focused entry). `selectedEntryID` remains the "primary" entry for the card, HOTP, the browser, etc.
-- [ ] Gestures and keys from the decisions; the one-database rule; trimming on list changes; the editor ends multi-selection
-- [ ] Selected-row styling for several rows; accessibility (`isSelected` trait, count announced)
+- [x] Replace `selectedEntryID` with a selection (`Set<UUID>` plus anchor and focused entry). `selectedEntryID` remains the "primary" entry for the card, HOTP, the browser, etc.
+- [x] Gestures and keys from the decisions; the one-database rule; trimming on list changes; the editor ends multi-selection
+- [ ] Selected-row styling for several rows (accent fill for every selected row done; anchor marker after the design); accessibility (`isSelected` trait done, count announced)
 
 ## Step 4: Selection panel and actions
 - [ ] `EntrySelectionPanel`: count, tiles/titles, buttons; bin variant (Restore, Delete Permanently)
