@@ -1,0 +1,82 @@
+diff --git a/KeePassKit/Cipher/KPKTwofishCipher.m b/KeePassKit/Cipher/KPKTwofishCipher.m
+index aec663d..2f24fb6 100644
+--- a/KeePassKit/Cipher/KPKTwofishCipher.m
++++ b/KeePassKit/Cipher/KPKTwofishCipher.m
+@@ -63,11 +63,12 @@ - (NSData *)encryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullabl
+     return nil;
+   }
+   uint64_t encrpyted_length = Twofish_get_output_length(&_context, data.length);
+-  uint8_t encrypted[data.length];
++  /* the output includes the padding, and databases are too large for the stack */
++  NSMutableData *encrypted = [NSMutableData dataWithLength:(NSUInteger)encrpyted_length];
+   
+-  Twofish_encrypt(&_context, (Twofish_Byte *)data.bytes, (Twofish_UInt64) data.length, encrypted, encrpyted_length);
++  Twofish_encrypt(&_context, (Twofish_Byte *)data.bytes, (Twofish_UInt64) data.length, encrypted.mutableBytes, encrpyted_length);
+   
+-  return [NSData dataWithBytes:encrypted length:(NSUInteger)encrpyted_length];
++  return encrypted;
+ }
+ 
+ - (NSData *)decryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullable *)error {
+@@ -75,11 +76,12 @@ - (NSData *)decryptData:(NSData *)data error:(NSError *__autoreleasing  _Nullabl
+     return nil;
+   }
+   NSAssert(0 == (data.length % 16), @"Invalid data size");
+-  uint8_t decrypted[data.length];
++  NSMutableData *decrypted = [NSMutableData dataWithLength:data.length];
+   uint64_t decrpyted_length = data.length;
+-  Twofish_decrypt(&_context, (Twofish_Byte *)data.bytes, data.length, decrypted, &decrpyted_length);
++  Twofish_decrypt(&_context, (Twofish_Byte *)data.bytes, data.length, decrypted.mutableBytes, &decrpyted_length);
++  decrypted.length = (NSUInteger)decrpyted_length;
+   
+-  return [NSData dataWithBytes:decrypted length:(NSUInteger)decrpyted_length];
++  return decrypted;
+ }
+ 
+ - (NSData *)encryptData:(NSData *)data withKey:(NSData *)key initializationVector:(NSData *)iv error:(NSError *__autoreleasing  _Nullable *)error {
+diff --git a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
+index 4d859c2..5f86177 100644
+--- a/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
++++ b/KeePassKit/IO/KDBX/KPKKdbxUnarchiver.m
+@@ -142,6 +142,10 @@ - (KPKTree *)tree:(NSError * _Nullable __autoreleasing *)error {
+       return nil;
+     }
+     /* KDBX 3.1 */
++    if(decryptedData.length < 32) {
++      KPKCreateError(error, KPKErrorPasswordAndOrKeyfileWrong);
++      return nil;
++    }
+     NSData *startBytes = [decryptedData subdataWithRange:NSMakeRange(0, 32)];
+     if(![self.streamStartBytes isEqualToData:startBytes]) {
+       KPKCreateError(error, KPKErrorPasswordAndOrKeyfileWrong);
+diff --git a/TwoFish/twofish.c b/TwoFish/twofish.c
+index 48fa6a1..558e873 100755
+--- a/TwoFish/twofish.c
++++ b/TwoFish/twofish.c
+@@ -1721,7 +1721,7 @@ void Twofish_encrypt(Twofish_context *context, Twofish_Byte *input, Twofish_UInt
+     uint8_t copy_length = TWOFISH_MIN(input_length - blockIndex * TWOFISH_BLOCKSIZE, TWOFISH_BLOCKSIZE);
+     uint8_t paddingCount = (TWOFISH_BLOCKSIZE - copy_length);
+     if(copy_length > 0) {
+-      memcpy(inputBlock, (input+(blockIndex*TWOFISH_BLOCKSIZE)), TWOFISH_BLOCKSIZE);
++      memcpy(inputBlock, (input+(blockIndex*TWOFISH_BLOCKSIZE)), copy_length);
+     }
+     for(int index=0; index < paddingCount; index++) {
+       inputBlock[TWOFISH_BLOCKSIZE - 1 - index] = paddingCount;
+@@ -1759,6 +1759,16 @@ void Twofish_decrypt(Twofish_context *context, Twofish_Byte *input, Twofish_UInt
+     memcpy(context->iv, inputBlock, TWOFISH_BLOCKSIZE);
+     memcpy((output + (blockIndex * TWOFISH_BLOCKSIZE)), outputBlock, TWOFISH_BLOCKSIZE);
+   }
+-  *output_length = (input_length - (Twofish_Byte)output[input_length-1]);
++  if(blockCount == 0) {
++    *output_length = 0;
++    return;
++  }
++  /* PKCS#7: a wrong key leaves a padding byte that isn't 1–16 */
++  Twofish_Byte paddingCount = output[input_length-1];
++  if(paddingCount == 0 || paddingCount > TWOFISH_BLOCKSIZE) {
++    *output_length = 0;
++    return;
++  }
++  *output_length = (input_length - paddingCount);
+ }
+ 

@@ -35,14 +35,6 @@ jobs:
       - name: Run test suite
         run: swift test
 
-      - name: Show crash reports
-        if: failure()
-        run: |
-          for report in $(find ~/Library/Logs/DiagnosticReports -name '*.ips' 2>/dev/null); do
-            echo "== $report"
-            head -c 20000 "$report"
-          done
-
   package:
     runs-on: macos-26
     timeout-minutes: 30

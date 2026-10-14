@@ -253,7 +253,7 @@ The vendored frameworks are built from the pinned revisions above:
 bash scripts/build_vendor_frameworks.sh
 ```
 
-KeeMac's changes to KeePassKit (challenge-response keys, SettingsChanged fixes) are applied from `scripts/patches`.
+KeeMac's changes to KeePassKit (challenge-response keys, SettingsChanged and Twofish fixes) are applied from `scripts/patches`.
 Override `KEEPASSKIT_REF` / `KISSXML_REF` to build other revisions, and update the table above
 and `Sources/UI/AboutLicenses.swift` when you do.
 

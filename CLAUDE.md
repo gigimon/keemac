@@ -123,4 +123,4 @@ swift test                       # XCTest suite (DataTests)
 
 - KeeMac is GPL-3.0-or-later (`LICENSE`) because it links KeePassKit (GPLv3).
 - Third-party license texts live in `Sources/UI/Resources/Licenses` and are shown in Settings → About (`AboutLicenses.swift`).
-- Vendored revisions are pinned in `scripts/build_vendor_frameworks.sh`; keep them in sync with `AboutLicenses.swift` and the README table when updating. KeeMac's KeePassKit changes live in `scripts/patches` and are part of the GPL source: challenge-response keys, and `SettingsChanged` kept as read (the unarchiver no longer bumps it, unchanged setters don't, merges take the newer side's settings).
+- Vendored revisions are pinned in `scripts/build_vendor_frameworks.sh`; keep them in sync with `AboutLicenses.swift` and the README table when updating. KeeMac's KeePassKit changes live in `scripts/patches` and are part of the GPL source: challenge-response keys, and `SettingsChanged` kept as read (the unarchiver no longer bumps it, unchanged setters don't, merges take the newer side's settings), and Twofish buffers (the cipher wrote the padding past a stack buffer the size of the database).
