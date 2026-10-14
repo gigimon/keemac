@@ -52,7 +52,7 @@ final class DatabaseMaintenanceUITests: KeeMacUITestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         scrollIntoView(toggle)
         toggle.click()
-        let keep = app.windows.buttons["Keep as a Group"].firstMatch
+        let keep = element("confirm.secondary")
         XCTAssertTrue(keep.waitForExistence(timeout: 5), "turning off a bin with entries asks first")
         keep.click()
         waitForToast("kept as a group")

@@ -49,8 +49,8 @@ public struct DatabaseSettingsView: View {
     @State private var loadError: String?
     @State private var errorMessage: String?
     @State private var toast: String?
-    @State private var showsBinDialog = false
-    @State private var showsIconsDialog = false
+    @State private var confirmRequest: ConfirmRequest?
+    @State private var estimateTask: Task<Void, Never>?
     @State private var showsChangeMasterKey = false
 
     private static let newBinGroupTag = "\u{1}new"
@@ -124,28 +124,17 @@ public struct DatabaseSettingsView: View {
         .task {
             await reload()
         }
-        .task(id: encryptionKey) {
-            await estimateUnlockTime()
+        .onChange(of: encryptionKey) {
+            scheduleUnlockEstimate()
         }
-        .alert(L("Turn off the recycle bin?"), isPresented: $showsBinDialog) {
-            Button(L("Empty Recycle Bin"), role: .destructive) {
-                Task { await turnOffRecycleBin(.empty) }
+        .overlay {
+            if let confirmRequest {
+                ConfirmDialog(request: confirmRequest) {
+                    self.confirmRequest = nil
+                }
             }
-            Button(L("Keep as a Group")) {
-                Task { await turnOffRecycleBin(.keepAsGroup) }
-            }
-            Button(L("Cancel"), role: .cancel) {}
-        } message: {
-            Text(L("The recycle bin has \(status?.recycleBinEntryCount ?? 0) entries."))
         }
-        .alert(L("Remove \(status?.unusedIconCount ?? 0) unused icons?"), isPresented: $showsIconsDialog) {
-            Button(L("Remove"), role: .destructive) {
-                Task { await removeUnusedIcons() }
-            }
-            Button(L("Cancel"), role: .cancel) {}
-        } message: {
-            Text(L("Icons used by entries, groups or their history are kept."))
-        }
+        .animation(.easeOut(duration: 0.15), value: confirmRequest?.id)
         .sheet(isPresented: $showsChangeMasterKey) {
             ChangeMasterKeySheet(viewModel: viewModel, hasPassword: status?.hasPassword ?? true) { generatedFile in
                 showToast(generatedFile.map { L("Master key changed · \($0) created") } ?? L("Master key changed"))
@@ -394,7 +383,7 @@ public struct DatabaseSettingsView: View {
                     get: { binEnabled },
                     set: { isOn in
                         if !isOn, status?.usesRecycleBin == true, (status?.recycleBinEntryCount ?? 0) > 0 {
-                            showsBinDialog = true
+                            askToTurnOffRecycleBin()
                         } else {
                             binEnabled = isOn
                         }
@@ -427,7 +416,7 @@ public struct DatabaseSettingsView: View {
                 saveButton(L("Save Recycle Bin"), busy: .recycleBin, enabled: binDirty) {
                     let group: VaultRecycleBinGroup = binGroup.isEmpty
                         ? .current
-                        : (binGroup == Self.newBinGroupTag ? .new : .existing(path: binGroup))
+                        : (binGroup == Self.newBinGroupTag ? .new(title: L("Recycle Bin")) : .existing(path: binGroup))
                     try await viewModel.updateRecycleBin(enabled: binEnabled, group: group, disposal: nil)
                     await reloadStatus()
                     showToast(L("Recycle bin settings saved"))
@@ -475,6 +464,33 @@ public struct DatabaseSettingsView: View {
             .map { ($0.path, $0.title, max($0.path.split(separator: ".").count - 2, 0)) }
     }
 
+    private func askToTurnOffRecycleBin() {
+        confirmRequest = ConfirmRequest(
+            title: L("Turn off the recycle bin?"),
+            message: L("The recycle bin has \(status?.recycleBinEntryCount ?? 0) entries."),
+            confirmTitle: L("Empty Recycle Bin"),
+            secondaryTitle: L("Keep as a Group"),
+            secondaryAction: {
+                confirmRequest = nil
+                Task { await turnOffRecycleBin(.keepAsGroup) }
+            }
+        ) {
+            confirmRequest = nil
+            Task { await turnOffRecycleBin(.empty) }
+        }
+    }
+
+    private func askToRemoveIcons() {
+        confirmRequest = ConfirmRequest(
+            title: L("Remove \(status?.unusedIconCount ?? 0) unused icons?"),
+            message: L("Icons used by entries, groups or their history are kept."),
+            confirmTitle: L("Remove")
+        ) {
+            confirmRequest = nil
+            Task { await removeUnusedIcons() }
+        }
+    }
+
     private func turnOffRecycleBin(_ disposal: VaultRecycleBinDisposal) async {
         let count = status?.recycleBinEntryCount ?? 0
         await perform(.recycleBin) {
@@ -496,7 +512,7 @@ public struct DatabaseSettingsView: View {
                 HStack(spacing: 10) {
                     HStack(spacing: 6) {
                         Button {
-                            history.maxItems = max((history.maxItems ?? 10) - 1, 1)
+                            history.maxItems = max((history.maxItems ?? 10) - 1, 0)
                         } label: {
                             Image(systemName: "minus").font(.system(size: 10, weight: .semibold))
                         }
@@ -507,7 +523,7 @@ public struct DatabaseSettingsView: View {
                             .frame(minWidth: 72)
                             .accessibilityIdentifier("dbSettings.history.items")
                         Button {
-                            history.maxItems = min((history.maxItems ?? 10) + 1, 100)
+                            history.maxItems = min((history.maxItems ?? 10) + 1, 9_999)
                         } label: {
                             Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
                         }
@@ -600,7 +616,7 @@ public struct DatabaseSettingsView: View {
             row(L("Unused custom icons"), subtitle: iconsSubtitle, isFirst: true) {
                 if (status?.unusedIconCount ?? 0) > 0 {
                     Button(L("Remove…")) {
-                        showsIconsDialog = true
+                        askToRemoveIcons()
                     }
                     .buttonStyle(KMButtonStyle(kind: .raised, height: 24, horizontalPadding: 12, fontWeight: .regular, fontSize: 12))
                     .disabled(busy != nil)
@@ -792,36 +808,50 @@ public struct DatabaseSettingsView: View {
             draft = loaded
             try await loadStatus()
             loadError = nil
+            scheduleUnlockEstimate()
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? L("Could not load database settings.")
         }
     }
 
+    /// Unsaved changes in other cards survive a refresh: drafts follow only when they matched the old status.
     private func loadStatus() async throws {
         let loaded = try await viewModel.loadMaintenanceStatus()
+        let previous = status
         status = loaded
-        binEnabled = loaded.usesRecycleBin
-        binGroup = ""
-        history = loaded.history
+        if previous == nil || (binEnabled == previous?.usesRecycleBin && binGroup.isEmpty) {
+            binEnabled = loaded.usesRecycleBin
+            binGroup = ""
+        }
+        if previous == nil || history == previous?.history {
+            history = loaded.history
+        }
     }
 
     private func reloadStatus() async {
         try? await loadStatus()
     }
 
-    private func estimateUnlockTime() async {
-        unlockSeconds = nil
-        // Wait for the user to stop clicking through the menus.
-        try? await Task.sleep(for: .milliseconds(300))
-        guard !Task.isCancelled else {
+    /// Measures the KDF for the chosen settings; a newer choice cancels the wait and drops an older result.
+    private func scheduleUnlockEstimate() {
+        estimateTask?.cancel()
+        guard saved != nil else {
             return
         }
+        unlockSeconds = nil
         let settings = draft
-        let seconds = await Task.detached(priority: .utility) {
-            try? KeePassKitVaultLoader.estimatedUnlockSeconds(settings)
-        }.value
-        if !Task.isCancelled {
-            unlockSeconds = seconds
+        estimateTask = Task {
+            // Wait for the user to stop clicking through the menus.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else {
+                return
+            }
+            let seconds = await Task.detached(priority: .utility) {
+                try? KeePassKitVaultLoader.estimatedUnlockSeconds(settings)
+            }.value
+            if !Task.isCancelled {
+                unlockSeconds = seconds
+            }
         }
     }
 

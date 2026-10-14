@@ -13,3 +13,4 @@
 "Unknown command %@" = "Неизвестная команда %@";
 "The current password is wrong." = "Текущий пароль неверен.";
 "Set a password before removing the key file." = "Задайте пароль, прежде чем убрать ключевой файл.";
+"Choose a different file than the current key file." = "Выберите другой файл, а не текущий ключевой файл.";

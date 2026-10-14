@@ -249,6 +249,8 @@ public final class AppViewModel {
     let settingsStore: AppSettingsStore
     private let userDefaults: UserDefaults
     private var idleLockTask: Task<Void, Never>?
+    /// Bumped on every lock: a long save that finishes after the database locked mustn't open it again.
+    private var lockGeneration = 0
     private var pendingLockTask: Task<Void, Never>?
     private var launchAtLoginState: LoginItemService.State = LoginItemService.state
 
@@ -561,6 +563,7 @@ public final class AppViewModel {
 
         cancelIdleLockTimer()
         stopWatchingVault()
+        lockGeneration += 1
         AutoTypeController.shared.cancelTyping()
         // Quick Access locks right after copying; the copied secret keeps its own auto-clear timer.
         if reason != .quickAccess {
@@ -849,7 +852,12 @@ public final class AppViewModel {
             throw VaultError.parseFailure(details: L("Vault is not unlocked."))
         }
 
+        let generation = lockGeneration
         let updatedVault = try await databaseManager.updateDatabaseSettings(settings)
+        // Re-encrypting with a heavy KDF can take long enough for the database to lock meanwhile.
+        guard generation == lockGeneration, case .loaded = loadState else {
+            return
+        }
         syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         await absorbPendingMerge()
@@ -885,7 +893,11 @@ public final class AppViewModel {
         guard case .loaded = loadState else {
             throw VaultError.parseFailure(details: L("Vault is not unlocked."))
         }
+        let generation = lockGeneration
         let updatedVault = try await change(databaseManager)
+        guard generation == lockGeneration, case .loaded = loadState else {
+            return
+        }
         syncEntryCollections(with: updatedVault)
         loadState = .loaded(updatedVault)
         await refreshUndoState()
@@ -908,7 +920,13 @@ public final class AppViewModel {
             newPassword: newPassword,
             keyFile: keyFile
         )
+        // The file is re-encrypted by now: remember its key even if the database locked meanwhile.
         selectedKeyFileURL = keyFileURL
+        if let keyFileURL {
+            persistSelection(keyFileURL, key: PersistedSelectionKey.keyFileBookmark)
+        } else {
+            userDefaults.removeObject(forKey: PersistedSelectionKey.keyFileBookmark)
+        }
         recordRecentVaultUsage(vaultURL: selectedVaultURL, keyFileURL: keyFileURL)
 
         let password = newPassword.isEmpty ? currentPassword : newPassword

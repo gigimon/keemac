@@ -305,6 +305,9 @@ struct ConfirmRequest: Identifiable {
     var badgeColor: Color = KM.warning
     /// Files the dialog is about (conflicting copies), listed under the message.
     var files: [ConfirmFile] = []
+    /// A second, non-destructive choice between the confirm and cancel buttons.
+    var secondaryTitle: String?
+    var secondaryAction: (() -> Void)?
     let action: () -> Void
 }
 
@@ -386,6 +389,12 @@ struct ConfirmDialog: View {
                     .buttonStyle(KMButtonStyle(kind: request.isDestructive ? .destructive : .primary, height: 28, fullWidth: true, fontWeight: .semibold))
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("confirm.confirm")
+
+                    if let secondaryTitle = request.secondaryTitle, let secondaryAction = request.secondaryAction {
+                        Button(secondaryTitle, action: secondaryAction)
+                            .buttonStyle(KMButtonStyle(kind: .secondary, height: 28, fullWidth: true, fontWeight: .regular))
+                            .accessibilityIdentifier("confirm.secondary")
+                    }
 
                     Button(request.cancelTitle, action: onCancel)
                         .buttonStyle(KMButtonStyle(kind: .secondary, height: 28, fullWidth: true, fontWeight: .regular))

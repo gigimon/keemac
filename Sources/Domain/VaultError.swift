@@ -11,6 +11,8 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
     case wrongCurrentPassword
     /// A master key needs a password, a key file or both.
     case emptyMasterKey
+    /// Generating a new key file over the one the database opens with now.
+    case keyFileInUse
 
     public var errorDescription: String? {
         switch self {
@@ -30,6 +32,8 @@ public enum VaultError: LocalizedError, Equatable, Sendable {
             return L("The current password is wrong.")
         case .emptyMasterKey:
             return L("Set a password before removing the key file.")
+        case .keyFileInUse:
+            return L("Choose a different file than the current key file.")
         }
     }
 }

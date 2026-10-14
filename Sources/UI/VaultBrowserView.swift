@@ -1460,7 +1460,10 @@ public struct VaultBrowserView: View {
 
             Divider()
 
-            Button(vault.summary.usesRecycleBin ? L("Move to Trash") : L("Delete…"), role: .destructive) {
+            Button(
+                vault.summary.usesRecycleBin || DatabaseScope.key(of: entry.groupPath) != nil ? L("Move to Trash") : L("Delete…"),
+                role: .destructive
+            ) {
                 confirmMoveToTrash(entry)
             }
         }

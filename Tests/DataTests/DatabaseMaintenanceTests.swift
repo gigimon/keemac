@@ -98,6 +98,38 @@ final class DatabaseMaintenanceTests: XCTestCase {
         XCTAssertEqual(KeePassKitVaultLoader.historyLimits(of: meta), VaultHistoryLimits(maxItems: nil, maxSizeMB: nil))
     }
 
+    /// KeePassXC writes -1 for unlimited; KeePassKit alone would stop keeping versions.
+    func testUnlimitedHistoryFromKeePassXCKeepsVersions() async throws {
+        let tree = try readTree()
+        tree.metaData?.historyMaxItems = -1
+        tree.metaData?.historyMaxSize = -1
+        let key = KPKCompositeKey(keys: [try XCTUnwrap(KPKPasswordKey(password: password))])
+        try tree.encrypt(with: key, format: .kdbx).write(to: vaultURL, options: .atomic)
+
+        let (loader, _) = try await open()
+        var vault = try await loader.createEntry(inGroupPath: nil, form: VaultEntryForm(title: "Mail", password: "1"))
+        let id = try XCTUnwrap(vault.entries.first { $0.title == "Mail" }?.id)
+        vault = try await loader.updateEntry(id: id, form: VaultEntryForm(title: "Mail", password: "2"))
+        XCTAssertEqual(vault.entries.first { $0.id == id }?.history.count, 1)
+        let status = try await loader.maintenanceStatus()
+        XCTAssertEqual(status.history, VaultHistoryLimits(maxItems: nil, maxSizeMB: nil))
+    }
+
+    func testHistoryCanBeTurnedOffAndKeepsAnUnchangedSize() async throws {
+        let tree = try readTree()
+        tree.metaData?.historyMaxSize = 1_500_000
+        let key = KPKCompositeKey(keys: [try XCTUnwrap(KPKPasswordKey(password: password))])
+        try tree.encrypt(with: key, format: .kdbx).write(to: vaultURL, options: .atomic)
+
+        let (loader, _) = try await open()
+        let shown = try await loader.maintenanceStatus().history
+        XCTAssertEqual(shown.maxSizeMB, 2, "1.5 MB is shown rounded up")
+        _ = try await loader.updateHistoryLimits(VaultHistoryLimits(maxItems: 0, maxSizeMB: shown.maxSizeMB))
+        let meta = try XCTUnwrap(try readTree().metaData)
+        XCTAssertEqual(meta.historyMaxItems, 0, "0 turns history off")
+        XCTAssertEqual(meta.historyMaxSize, 1_500_000, "an untouched size isn't rounded")
+    }
+
     // MARK: Recycle bin
 
     private func trashOneEntry(_ loader: KeePassKitVaultLoader) async throws -> UUID {
@@ -158,7 +190,7 @@ final class DatabaseMaintenanceTests: XCTestCase {
         updated = try await loader.updateRecycleBin(enabled: true, group: .current, disposal: nil)
         XCTAssertEqual(updated.entries.first { $0.id == id }?.groupPath, "\(root).Deleted")
 
-        updated = try await loader.updateRecycleBin(enabled: true, group: .new, disposal: nil)
+        updated = try await loader.updateRecycleBin(enabled: true, group: .new(title: "Recycle Bin"), disposal: nil)
         let bin = try XCTUnwrap(updated.groups.first { $0.isTrash })
         XCTAssertEqual(bin.title, "Recycle Bin")
         XCTAssertNotEqual(bin.path, "\(root).Deleted")
@@ -209,6 +241,55 @@ final class DatabaseMaintenanceTests: XCTestCase {
         let removed = try await withKey.changeMasterKey(currentPassword: password, currentKeyFileURL: keyURL, newPassword: nil, keyFile: .remove)
         XCTAssertNil(removed)
         _ = try await open()
+    }
+
+    func testGeneratingOverTheCurrentKeyFileIsRefused() async throws {
+        let keyURL = directory.appendingPathComponent("Current.keyx")
+        try KeePassKitVaultLoader.generateKeyFile(at: keyURL)
+        let original = try Data(contentsOf: keyURL)
+        let (loader, _) = try await open()
+        _ = try await loader.changeMasterKey(currentPassword: password, currentKeyFileURL: nil, newPassword: nil, keyFile: .use(keyURL))
+
+        do {
+            _ = try await loader.changeMasterKey(currentPassword: password, currentKeyFileURL: keyURL, newPassword: nil, keyFile: .generate(keyURL))
+            XCTFail("the current key file can't be replaced")
+        } catch let error as VaultError {
+            XCTAssertEqual(error, .keyFileInUse)
+        }
+        XCTAssertEqual(try Data(contentsOf: keyURL), original)
+    }
+
+    func testGeneratedKeyFileReplacesAnotherFileOnlyOnSuccessAndIsPrivate() async throws {
+        let keyURL = directory.appendingPathComponent("Old.keyx")
+        try Data("not a key".utf8).write(to: keyURL)
+        let (loader, _) = try await open()
+        do {
+            _ = try await loader.changeMasterKey(currentPassword: "wrong", currentKeyFileURL: nil, newPassword: nil, keyFile: .generate(keyURL))
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: keyURL), Data("not a key".utf8), "a failed change leaves the file alone")
+
+        _ = try await loader.changeMasterKey(currentPassword: password, currentKeyFileURL: nil, newPassword: nil, keyFile: .generate(keyURL))
+        XCTAssertNotEqual(try Data(contentsOf: keyURL), Data("not a key".utf8))
+        let permissions = try FileManager.default.attributesOfItem(atPath: keyURL.path)[.posixPermissions] as? Int
+        XCTAssertEqual(permissions, 0o600)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".tmp") }
+        XCTAssertTrue(leftovers.isEmpty, "no temporary file stays behind")
+        _ = try await open(keyFileURL: keyURL)
+    }
+
+    func testUnreadableCurrentKeyFileIsNotAWrongPassword() async throws {
+        let (loader, _) = try await open()
+        do {
+            _ = try await loader.changeMasterKey(
+                currentPassword: password,
+                currentKeyFileURL: directory.appendingPathComponent("Gone.keyx"),
+                newPassword: "new",
+                keyFile: .keep
+            )
+            XCTFail("missing key file")
+        } catch let error as VaultError {
+            XCTAssertNotEqual(error, .wrongCurrentPassword)
+        }
     }
 
     func testChooseAnExistingKeyFile() async throws {
@@ -322,5 +403,9 @@ final class DatabaseMaintenanceViewModelTests: XCTestCase {
         model.lockVault(reason: .userInitiated)
         await model.unlock(masterPassword: "pw")
         XCTAssertTrue(model.loadState.isUnlocked, "the remembered key file opens it")
+
+        // A new launch restores the selection from the bookmark.
+        let relaunched = AppViewModel(vaultLoader: KeePassKitVaultLoader(), settingsStore: settings, userDefaults: defaults)
+        XCTAssertEqual(relaunched.selectedKeyFileURL?.standardizedFileURL.path, keyURL.standardizedFileURL.path)
     }
 }

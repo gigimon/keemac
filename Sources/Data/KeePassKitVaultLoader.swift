@@ -373,6 +373,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
 
         let editingDelegate = TreeEditingDelegate(undoStack: undoStack)
         tree.delegate = editingDelegate
+        Self.normalizeHistoryLimits(of: tree)
 
         let format = Self.preferredSaveFormat(for: fileURL, minimumVersionFormat: tree.minimumVersion.format)
         let loadedSession = Session(
@@ -518,6 +519,8 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.parseFailure(details: "Could not generate a key file.")
         }
         try data.write(to: url, options: [.atomic])
+        // A key file is a secret: readable by its owner only.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     /// Picks KDF work factors so that unlocking takes roughly `seconds` on this Mac.
@@ -952,9 +955,12 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
         guard let currentSession = session else {
             throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
         }
-        guard !currentPassword.isEmpty || currentKeyFileURL != nil,
-              let currentKey = try? makeCompositeKey(masterPassword: currentPassword, keyFileURL: currentKeyFileURL),
-              currentSession.key.isEqual(to: currentKey) else {
+        guard !currentPassword.isEmpty || currentKeyFileURL != nil else {
+            throw VaultError.wrongCurrentPassword
+        }
+        // An unreadable current key file is its own error, not a wrong password.
+        let currentKey = try makeCompositeKey(masterPassword: currentPassword, keyFileURL: currentKeyFileURL)
+        guard currentSession.key.isEqual(to: currentKey) else {
             throw VaultError.wrongCurrentPassword
         }
 
@@ -972,20 +978,33 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.emptyMasterKey
         }
 
-        var generated: URL?
-        if case .generate(let url) = keyFile {
-            try Self.generateKeyFile(at: url)
-            generated = url
-        }
-        do {
+        guard case .generate(let destination) = keyFile else {
             try await changeMasterKey(newPassword: password, keyFileURL: keyFileURL)
+            return keyFileURL
+        }
+        // Overwriting the current key file would leave the `.bak` copy without its key.
+        if let currentKeyFileURL, currentKeyFileURL.standardizedFileURL.path == destination.standardizedFileURL.path {
+            throw VaultError.keyFileInUse
+        }
+        // The new key goes to a temporary file next to the destination and takes its place only after
+        // the database is saved with it, so a failure leaves whatever was there untouched.
+        let temporary = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
+        try Self.generateKeyFile(at: temporary)
+        do {
+            try await changeMasterKey(newPassword: password, keyFileURL: temporary)
         } catch {
-            if let generated {
-                try? FileManager.default.removeItem(at: generated)
-            }
+            try? FileManager.default.removeItem(at: temporary)
             throw error
         }
-        return keyFileURL
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        }
+        // Replacing keeps the old file's permissions; the key stays private.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+        return destination
     }
 
     public func maintenanceStatus() async throws -> VaultMaintenanceStatus {
@@ -1018,17 +1037,18 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             case .current:
                 break
             case .existing(let path):
-                guard let target = Self.findGroup(in: tree, path: path), target !== tree.root, !target.isTrashed else {
+                guard let target = Self.findGroup(in: tree, path: path), target !== tree.root, !target.isTrashed,
+                      target.uuid != meta.entryTemplatesGroupUuid else {
                     throw VaultError.parseFailure(details: "Recycle bin group was not found.")
                 }
                 meta.trashUuid = target.uuid
-            case .new:
+            case .new(let title):
                 guard let root = tree.root else {
                     throw VaultError.parseFailure(details: "Database has no root group.")
                 }
                 let bin = tree.createGroup(root)
                 bin.add(to: root)
-                bin.title = "Recycle Bin"
+                bin.title = title
                 bin.iconId = Int(KPKIconType.trash.rawValue)
                 bin.isSearchEnabled = .NO
                 bin.isAutoTypeEnabled = .NO
@@ -1053,8 +1073,12 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
             throw VaultError.parseFailure(details: "Vault is not loaded for editing.")
         }
         // KeePass reads -1 as unlimited, KeePassKit as "history off": the largest Int32 works for both.
-        meta.historyMaxItems = limits.maxItems.map { max($0, 1) } ?? Self.unlimitedHistory
-        meta.historyMaxSize = limits.maxSizeMB.map { max($0, 1) * 1024 * 1024 } ?? Self.unlimitedHistory
+        meta.historyMaxItems = limits.maxItems.map { max($0, 0) } ?? Self.unlimitedHistory
+        let current = Self.historyLimits(of: meta)
+        // An unchanged size keeps its exact byte value instead of the rounded megabytes shown.
+        if limits.maxSizeMB != current.maxSizeMB {
+            meta.historyMaxSize = limits.maxSizeMB.map { max($0, 1) * 1024 * 1024 } ?? Self.unlimitedHistory
+        }
         try save(session: currentSession)
         return Self.mapTree(currentSession.tree, fileURL: currentSession.fileURL)
     }
@@ -1079,13 +1103,27 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     private static let unlimitedHistory = Int(Int32.max)
     private static let nullUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
+    /// KeePass and KeePassXC write -1 for unlimited; KeePassKit would read it as "no history" and stop
+    /// keeping versions, so the open tree uses `Int32.max` instead (written back on the next save).
+    private static func normalizeHistoryLimits(of tree: KPKTree) {
+        guard let meta = tree.metaData else {
+            return
+        }
+        if meta.historyMaxItems < 0 {
+            meta.historyMaxItems = unlimitedHistory
+        }
+        if meta.historyMaxSize < 0 {
+            meta.historyMaxSize = unlimitedHistory
+        }
+    }
+
     /// -1 (KeePass) and anything from `Int32.max` up mean unlimited.
     static func historyLimits(of meta: KPKMetaData) -> VaultHistoryLimits {
         let items = meta.historyMaxItems
         let size = meta.historyMaxSize
         return VaultHistoryLimits(
             maxItems: items < 0 || items >= unlimitedHistory ? nil : items,
-            maxSizeMB: size < 0 || size >= unlimitedHistory ? nil : max(Int((Double(size) / 1_048_576).rounded()), 1)
+            maxSizeMB: size < 0 || size >= unlimitedHistory ? nil : Int((Double(size) / 1_048_576).rounded(.up))
         )
     }
 
@@ -2183,6 +2221,7 @@ public actor KeePassKitVaultLoader: VaultLoading, VaultEditing, VaultSessionCont
     private func save(session: Session) throws {
         if currentDiskStatus(of: session.fileURL) == .changed {
             let merge = try mergeFromDisk(into: session)
+            Self.normalizeHistoryLimits(of: session.tree)
             if !merge.summary.isEmpty {
                 let previous = pendingMergeSummary?.changes ?? []
                 pendingMergeSummary = VaultMergeSummary(changes: previous + merge.summary.changes)

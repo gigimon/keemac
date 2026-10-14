@@ -73,8 +73,8 @@ public enum VaultRecycleBinGroup: Sendable, Equatable {
     /// The group the database already uses (KeePassKit creates one on the first delete if there is none).
     case current
     case existing(path: String)
-    /// A new "Recycle Bin" group under the root.
-    case new
+    /// A new group with this title under the root.
+    case new(title: String)
 }
 
 /// What happens to the recycle bin's contents when it is turned off.
