@@ -19,7 +19,9 @@ func socketPath() -> String {
     if !directory.hasSuffix("/") {
         directory += "/"
     }
-    return directory + "KeeMac.BrowserServer"
+    // "KeeMac Dev" (bundle ID ending in .dev) listens on its own socket; see AppVariant.
+    let isDevelopment = Bundle.main.bundleIdentifier?.hasSuffix(".dev") ?? false
+    return directory + (isDevelopment ? "KeeMacDev.BrowserServer" : "KeeMac.BrowserServer")
 }
 
 func connectToKeeMac() -> Int32? {

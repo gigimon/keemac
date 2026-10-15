@@ -200,12 +200,26 @@ final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
         _ = SecItemDelete(query as CFDictionary)
     }
 
+    /// A build signed with a provisioning profile has `keychain-access-groups`: its items live in the data
+    /// protection keychain, where Touch ID access control works without keychain password prompts.
+    /// Ad-hoc builds keep using the legacy file keychain.
+    static let usesDataProtectionKeychain: Bool = {
+        guard let task = SecTaskCreateFromSelf(kCFAllocatorDefault) else {
+            return false
+        }
+        return SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil) != nil
+    }()
+
     private func baseQuery(for vaultURL: URL, service: String = service) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: vaultURL.standardizedFileURL.path
         ]
+        if Self.usesDataProtectionKeychain {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        return query
     }
 
     private func mapStatus(_ status: OSStatus) -> BiometricCredentialError {

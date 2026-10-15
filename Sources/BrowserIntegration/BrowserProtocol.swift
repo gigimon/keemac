@@ -13,7 +13,12 @@ public enum BrowserProtocol {
 
     /// The socket `keemac-proxy` connects to, in the per-user temporary directory.
     public static var socketPath: String {
-        temporaryDirectory + "KeeMac.BrowserServer"
+        socketPath(named: "KeeMac.BrowserServer")
+    }
+
+    /// A socket of that name in the per-user temporary directory ("KeeMac Dev" uses its own).
+    public static func socketPath(named name: String) -> String {
+        temporaryDirectory + name
     }
 
     private static var temporaryDirectory: String {

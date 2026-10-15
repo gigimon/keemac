@@ -17,7 +17,7 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
 
     public static let shared = UITesting.isActive
         ? BrowserIntegrationController(socketPath: UITesting.browserSocketPath, manifestDirectory: UITesting.manifestDirectory)
-        : BrowserIntegrationController()
+        : BrowserIntegrationController(socketPath: AppVariant.browserSocketPath, repairsMovedManifests: !AppVariant.isDevelopment)
 
     public private(set) var serverState: ServerState = .off
     /// Browsers connected to the open database.
@@ -34,6 +34,8 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
     @ObservationIgnored private let socketPath: String
     @ObservationIgnored private let manifestDirectory: URL
     @ObservationIgnored private let proxyURL: URL?
+    /// "KeeMac Dev" leaves manifests pointing at the installed KeeMac alone.
+    @ObservationIgnored private let repairsMovedManifests: Bool
     @ObservationIgnored private var isShowingUnlock = false
 
     init(
@@ -41,8 +43,10 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
         prompts: any BrowserPrompting = BrowserPromptPresenter(),
         socketPath: String = BrowserProtocol.socketPath,
         manifestDirectory: URL = NativeMessagingHosts.defaultDirectory,
-        proxyURL: URL? = NativeMessagingHosts.proxyURL
+        proxyURL: URL? = NativeMessagingHosts.proxyURL,
+        repairsMovedManifests: Bool = true
     ) {
+        self.repairsMovedManifests = repairsMovedManifests
         self.settings = settings
         self.prompts = prompts
         self.socketPath = socketPath
@@ -176,7 +180,7 @@ public final class BrowserIntegrationController: BrowserVaultProviding {
 
     /// Points KeeMac's manifests at the current proxy after the app was moved.
     private func repairMovedManifests() {
-        guard let proxyURL, isProxyAvailable else {
+        guard repairsMovedManifests, let proxyURL, isProxyAvailable else {
             return
         }
         for browser in BrowserKind.allCases

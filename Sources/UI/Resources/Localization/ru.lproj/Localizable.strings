@@ -1265,3 +1265,4 @@
 "You can restore them from the Trash." = "Их можно восстановить из Корзины.";
 "Add to Selection" = "Добавить к выделению";
 "Remove from Selection" = "Убрать из выделения";
+"KeeMac Dev doesn't change this file. Use SSH_AUTH_SOCK=%@" = "KeeMac Dev не меняет этот файл. Используйте SSH_AUTH_SOCK=%@";

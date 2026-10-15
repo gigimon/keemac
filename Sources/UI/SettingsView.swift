@@ -291,8 +291,16 @@ public struct SettingsView: View {
             .padding(.top, -10)
 
         settingsGroup("~/.ssh/config") {
-            settingRow(L("Tell ssh to use KeeMac"), subtitle: sshConfigIsSetUp ? L("Set up") : L("Not set up"), isFirst: true) {
-                if sshConfigIsSetUp {
+            settingRow(
+                L("Tell ssh to use KeeMac"),
+                subtitle: AppVariant.isDevelopment
+                    ? L("KeeMac Dev doesn't change this file. Use SSH_AUTH_SOCK=\(AppVariant.sshAgentSocketPath)")
+                    : (sshConfigIsSetUp ? L("Set up") : L("Not set up")),
+                isFirst: true
+            ) {
+                if AppVariant.isDevelopment {
+                    EmptyView()
+                } else if sshConfigIsSetUp {
                     Button(L("Remove")) {
                         runConfigChange { try SSHConfigSetup.remove() }
                     }

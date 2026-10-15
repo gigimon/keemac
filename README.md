@@ -172,10 +172,13 @@ Requirements: macOS 15 or newer, Xcode 16+ or the Command Line Tools with Swift 
 swift build                      # debug build
 swift run KeeMacApp              # run the app
 swift test                       # run the tests
-./scripts/build_app.sh           # package .build/dist/KeeMac.app
+./scripts/build_app.sh           # package .build/dist/KeeMac Dev.app (tech.keemac.dev)
+./scripts/build_app.sh --release # package .build/dist/KeeMac.app (tech.keemac.app)
 ```
 
-The unbundled debug binary stores its settings in the `KeeMacApp` defaults domain; the packaged app uses `com.keemac.local`.
+- **Two variants.** "KeeMac Dev" is the development build. It has its own settings, Touch ID keychain item, SSH agent socket (`~/.keemac-dev/agent.sock`) and browser socket. It never edits `~/.ssh/config` or repoints browser manifests on its own, so it runs next to the installed KeeMac.
+- **Signing.** With an Apple Development (or Developer ID Application) certificate in the keychain and a provisioning profile for the bundle ID in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`, `build_app.sh` signs with it: keychain entitlement, embedded profile, hardened runtime. Touch ID items then live in the data protection keychain. Without them it signs ad-hoc and Touch ID falls back to the login keychain.
+- **Settings.** The unbundled debug binary keeps its settings in the `KeeMacApp` defaults domain. The first launch of `tech.keemac.app` copies the settings of the earlier `com.keemac.local` builds; Touch ID has to be turned on again per database.
 
 ### Touch ID
 

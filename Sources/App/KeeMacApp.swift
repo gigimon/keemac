@@ -153,6 +153,7 @@ struct KeeMacApp: App {
 
     init() {
         UITesting.prepare()
+        LegacySettingsMigration.migrateIfNeeded()
         let viewModel = AppViewModel()
         self.viewModel = viewModel
         MainWindowController.shared.configure(viewModel: viewModel)

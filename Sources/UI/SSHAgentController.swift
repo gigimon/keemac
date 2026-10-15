@@ -53,7 +53,7 @@ public struct SSHAgentRecentRequest: Identifiable, Equatable, Sendable {
 public final class SSHAgentController {
     public static let shared = UITesting.isActive
         ? SSHAgentController(socketPath: UITesting.sshAgentSocketPath, knownHostsURL: UITesting.knownHostsURL)
-        : SSHAgentController()
+        : SSHAgentController(socketPath: AppVariant.sshAgentSocketPath)
 
     public enum Status: Equatable {
         case off
