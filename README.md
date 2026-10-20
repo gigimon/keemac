@@ -172,9 +172,15 @@ Requirements: macOS 15 or newer, Xcode 16+ or the Command Line Tools with Swift 
 swift build                      # debug build
 swift run KeeMacApp              # run the app
 swift test                       # run the tests
-./scripts/build_app.sh           # package .build/dist/KeeMac Dev.app (tech.keemac.dev)
-./scripts/build_app.sh --release # package .build/dist/KeeMac.app (tech.keemac.app)
+./scripts/build_dev.sh           # 1. KeeMac Dev (tech.keemac.dev) in .build/dist; --install puts it in ~/Applications
+./scripts/build_local.sh         # 2. KeeMac (tech.keemac.app), Developer ID signed, installed to ~/Applications
+./scripts/build_notarized.sh     # 3. KeeMac notarized for the website: .build/release/KeeMac-<version>-macOS.zip
 ```
+
+The three scripts wrap `build_app.sh` (`--release`, `--install`, `--debug`, `--ui-testing`) and `make_release_archive.sh` (`--notarize`, `--staple`).
+
+- **Notarization** needs an App Store Connect API key: `KEEMAC_NOTARY_KEY_ID`, `KEEMAC_NOTARY_ISSUER`, `KEEMAC_NOTARY_KEY` (path to the `.p8`), set in the environment or in `~/.appstoreconnect/keemac-notary.env`.
+- If Apple takes longer than 30 minutes, the script prints the submission ID; once it shows Accepted, `build_notarized.sh --staple` finishes without rebuilding.
 
 - **Two variants.** "KeeMac Dev" is the development build. It has its own settings, Touch ID keychain item, SSH agent socket (`~/.keemac-dev/agent.sock`) and browser socket. It never edits `~/.ssh/config` or repoints browser manifests on its own, so it runs next to the installed KeeMac.
 - **Signing.** With an Apple Development (or Developer ID Application) certificate in the keychain and a provisioning profile for the bundle ID in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`, `build_app.sh` signs with it: keychain entitlement, embedded profile, hardened runtime. Touch ID items then live in the data protection keychain. Without them it signs ad-hoc and Touch ID falls back to the login keychain.

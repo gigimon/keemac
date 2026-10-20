@@ -14,7 +14,9 @@ Native macOS password manager written in SwiftUI (with some AppKit). It reads an
 swift build                      # debug build
 swift run KeeMacApp              # run the app
 swift test                       # XCTest suite (DataTests)
-./scripts/build_app.sh           # package .build/dist/KeeMac Dev.app (tech.keemac.dev); --release: KeeMac.app (tech.keemac.app)
+./scripts/build_dev.sh           # KeeMac Dev (tech.keemac.dev), Apple Development signing
+./scripts/build_local.sh         # KeeMac (tech.keemac.app), Developer ID, installed to ~/Applications
+./scripts/build_notarized.sh     # KeeMac notarized + stapled zip for the website (--staple to finish later)
 ./scripts/run_ui_tests.sh        # build the UI test app and run the XCUITest suite (needs xcodegen)
 ./scripts/build_vendor_frameworks.sh   # rebuild Vendor/*.xcframework from pinned revisions
 ```
@@ -24,6 +26,7 @@ swift test                       # XCTest suite (DataTests)
 - Signing (`build_app.sh`):
   - It finds a certificate in the keychain and a profile for the bundle ID in `~/Library/Developer/Xcode/UserData/Provisioning Profiles` (team `BL65NHTRYD`), then signs with `keychain-access-groups`, the embedded profile and hardened runtime. Otherwise it signs ad-hoc. The UI test build is always ad-hoc.
   - `KeychainBiometricCredentialStore` uses the data protection keychain when the entitlement is there.
+  - Developer ID signatures get Apple's timestamp. `make_release_archive.sh --notarize` submits with `notarytool` using the API key from `~/.appstoreconnect/keemac-notary.env`, checks the status, staples, and verifies with `spctl`. The wrappers `build_dev.sh` / `build_local.sh` / `build_notarized.sh` only pass flags.
 - `AppVariant` (bundle ID ending in `.dev`) gives "KeeMac Dev" its own SSH agent and browser sockets. `keemac-proxy` checks the same suffix. It also never writes `~/.ssh/config` and doesn't repair browser manifests automatically.
 - Versions come from git (`scripts/resolve_version.sh`, sourced by the build scripts): HEAD at a `vX.Y.Z` tag is a release build with version `X.Y.Z`, anything else uses the short commit hash; the build number is the commit count. `release.yml` runs unit and UI tests on `vX.Y.Z` tags before publishing.
 
