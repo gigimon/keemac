@@ -1980,30 +1980,32 @@ public final class AppViewModel {
             return nil
         }
 
-        var isStale = false
-        do {
-            let resolvedURL = try URL(
-                resolvingBookmarkData: bookmarkData,
-                options: [.withSecurityScope],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-
-            guard FileManager.default.fileExists(atPath: resolvedURL.path) else {
-                userDefaults.removeObject(forKey: key)
-                return nil
-            }
-
-            if isStale {
-                persistSelection(resolvedURL, key: key)
-            }
-
-            return resolvedURL
-        } catch {
+        guard let (resolvedURL, needsRefresh) = Self.resolveBookmark(bookmarkData) else {
             userDefaults.removeObject(forKey: key)
-            SecureLogger.logUnlockFailure(error)
             return nil
         }
+        guard FileManager.default.fileExists(atPath: resolvedURL.path) else {
+            userDefaults.removeObject(forKey: key)
+            return nil
+        }
+        if needsRefresh {
+            persistSelection(resolvedURL, key: key)
+        }
+        return resolvedURL
+    }
+
+    /// A security-scoped bookmark only resolves for the app that made it, and a newly signed KeeMac
+    /// (another bundle ID or certificate) is another app. KeeMac isn't sandboxed, so the bookmark also
+    /// resolves without the scope; `needsRefresh` says to save a new one.
+    nonisolated static func resolveBookmark(_ bookmarkData: Data) -> (url: URL, needsRefresh: Bool)? {
+        var isStale = false
+        if let url = try? URL(resolvingBookmarkData: bookmarkData, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &isStale) {
+            return (url, isStale)
+        }
+        if let url = try? URL(resolvingBookmarkData: bookmarkData, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) {
+            return (url, true)
+        }
+        return nil
     }
 
     func bookmarkData(for url: URL) -> Data? {
@@ -2020,13 +2022,7 @@ public final class AppViewModel {
     }
 
     func restoreURL(fromBookmarkData bookmarkData: Data) -> URL? {
-        var isStale = false
-        guard let resolvedURL = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ) else {
+        guard let resolvedURL = Self.resolveBookmark(bookmarkData)?.url else {
             return nil
         }
 

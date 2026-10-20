@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --clean)
-      clean_outputs
+      CLEAN="true"
       shift
       ;;
     --ui-testing)
@@ -95,6 +95,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# After the options, so --clean removes the folder of the variant being built.
+if [[ "${CLEAN:-false}" == "true" ]]; then
+  clean_outputs
+fi
 
 case "$VARIANT" in
   dev)
@@ -197,48 +202,101 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# A valid, unexpired profile in PROFILES_DIR whose App ID is TEAM.<bundle ID>; prints its path.
+TEMP_FILES=()
+cleanup_temp_files() {
+  [[ ${#TEMP_FILES[@]} -gt 0 ]] && rm -f "${TEMP_FILES[@]}"
+  return 0
+}
+trap cleanup_temp_files EXIT
+
+new_temp_file() {
+  local file
+  file="$(mktemp)"
+  TEMP_FILES+=("$file")
+  echo "$file"
+}
+
+# The unexpired profile in PROFILES_DIR for TEAM.<bundle ID> that lasts longest; prints its path.
 find_profile() {
-  local profile plist app_id expires
+  local profile plist app_id expires seconds best="" best_seconds=0 now
   [[ -d "$PROFILES_DIR" ]] || return 1
-  plist="$(mktemp)"
+  plist="$(new_temp_file)"
+  now="$(date +%s)"
   for profile in "$PROFILES_DIR"/*.provisionprofile; do
     [[ -e "$profile" ]] || continue
     security cms -D -i "$profile" > "$plist" 2>/dev/null || continue
     app_id="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$plist" 2>/dev/null || true)"
     expires="$(plutil -extract ExpirationDate raw -o - "$plist" 2>/dev/null || true)"
-    if [[ "${app_id#*.}" == "$BUNDLE_IDENTIFIER" ]] && [[ -n "$expires" ]] \
-      && [[ "$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$expires" +%s 2>/dev/null || echo 0)" -gt "$(date +%s)" ]]; then
-      rm -f "$plist"
-      echo "$profile"
-      return 0
+    seconds="$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$expires" +%s 2>/dev/null || echo 0)"
+    if [[ "${app_id#*.}" == "$BUNDLE_IDENTIFIER" && "$seconds" -gt "$now" && "$seconds" -gt "$best_seconds" ]]; then
+      best="$profile"
+      best_seconds="$seconds"
     fi
   done
-  rm -f "$plist"
+  [[ -n "$best" ]] || return 1
+  echo "$best"
+}
+
+# SHA-1 hashes of the certificates the profile allows, one per line.
+profile_certificate_hashes() {
+  local plist der index=0
+  plist="$(new_temp_file)"
+  der="$(new_temp_file)"
+  security cms -D -i "$1" > "$plist"
+  while /usr/libexec/PlistBuddy -c "Print :DeveloperCertificates:$index" "$plist" > "$der" 2>/dev/null; do
+    openssl x509 -inform der -in "$der" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g'
+    index=$((index + 1))
+  done
+}
+
+# The keychain identity (SHA-1) the profile allows: SIGN_IDENTITY if it matches, else Apple Development first.
+find_identity() {
+  local allowed identities kind hash
+  allowed="$(profile_certificate_hashes "$1")"
+  identities="$(security find-identity -v -p codesigning 2>/dev/null)"
+  if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+    hash="$(echo "$identities" | awk -v wanted="$SIGN_IDENTITY" -F '"' 'index($0, wanted) { split($1, f, " "); print f[2]; exit }')"
+    if [[ -n "$hash" ]] && grep -qx "$hash" <<< "$allowed"; then
+      echo "$hash"
+      return 0
+    fi
+    echo "error: SIGN_IDENTITY \"$SIGN_IDENTITY\" isn't a certificate of $(basename "$1")" >&2
+    exit 1
+  fi
+  for kind in "Apple Development" "Developer ID Application"; do
+    while read -r hash; do
+      if [[ -n "$hash" ]] && grep -qx "$hash" <<< "$allowed"; then
+        echo "$hash"
+        return 0
+      fi
+    done < <(echo "$identities" | awk -v kind="$kind" -F '"' 'index($2, kind) == 1 { split($1, f, " "); print f[2] }')
+  done
   return 1
 }
 
-# The first certificate of this kind that codesign can use.
-find_identity() {
-  security find-identity -v -p codesigning 2>/dev/null | awk -v kind="$1" -F '"' 'index($2, kind) == 1 { print $2; exit }'
-}
-
 PROFILE=""
-IDENTITY="${SIGN_IDENTITY:-}"
+IDENTITY=""
 if [[ "$VARIANT" != "uitests" ]]; then
   PROFILE="$(find_profile || true)"
-  if [[ -n "$PROFILE" && -z "$IDENTITY" ]]; then
-    IDENTITY="$(find_identity "Apple Development")"
-    [[ -n "$IDENTITY" ]] || IDENTITY="$(find_identity "Developer ID Application")"
+  if [[ -n "$PROFILE" ]]; then
+    IDENTITY="$(find_identity "$PROFILE" || true)"
+    if [[ -z "$IDENTITY" ]]; then
+      echo "warning: no certificate in the keychain matches $(basename "$PROFILE")" >&2
+    fi
   fi
 fi
 
 if [[ -n "$PROFILE" && -n "$IDENTITY" ]]; then
-  PROFILE_PLIST="$(mktemp)"
-  ENTITLEMENTS="$(mktemp)"
+  PROFILE_PLIST="$(new_temp_file)"
+  ENTITLEMENTS="$(new_temp_file)"
   security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
   TEAM_ID="$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$PROFILE_PLIST")"
-  rm -f "$PROFILE_PLIST"
+  # Lets a debugger attach to a Debug build (not a restricted entitlement on macOS).
+  GET_TASK_ALLOW=""
+  if [[ "$CONFIGURATION" == "Debug" ]]; then
+    GET_TASK_ALLOW="  <key>com.apple.security.get-task-allow</key>
+  <true/>"
+  fi
   # The keychain group lets Touch ID items live in the data protection keychain, tied to this app and team.
   cat > "$ENTITLEMENTS" <<ENTITLEMENTS_PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -253,17 +311,17 @@ if [[ -n "$PROFILE" && -n "$IDENTITY" ]]; then
   <array>
     <string>$TEAM_ID.$BUNDLE_IDENTIFIER</string>
   </array>
+$GET_TASK_ALLOW
 </dict>
 </plist>
 ENTITLEMENTS_PLIST
   cp "$PROFILE" "$APP_DIR/Contents/embedded.provisionprofile"
-  echo "Signing with \"$IDENTITY\" and $(basename "$PROFILE")"
+  echo "Signing with $IDENTITY ($(security find-identity -v -p codesigning | awk -v h="$IDENTITY" -F '"' 'index($1, h) { print $2; exit }')) and $(basename "$PROFILE")"
   for framework in "$APP_DIR"/Contents/lib/*.framework; do
     codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$framework"
   done
   codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$APP_DIR/Contents/MacOS/keemac-proxy"
   codesign --force --options runtime --timestamp=none --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP_DIR"
-  rm -f "$ENTITLEMENTS"
 else
   if [[ "$VARIANT" != "uitests" ]]; then
     echo "warning: no signing certificate or provisioning profile for $BUNDLE_IDENTIFIER; signing ad-hoc (Touch ID falls back to the legacy keychain)" >&2

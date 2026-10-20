@@ -419,7 +419,7 @@ public struct SettingsView: View {
         case .off:
             return L("Off")
         case .socketInUse:
-            return L("Another SSH agent already uses ~/.keemac/agent.sock")
+            return L("Another SSH agent already uses \(AppVariant.sshAgentSocketPath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
         case .failed(let message):
             return message
         case .running:

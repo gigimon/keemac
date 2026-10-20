@@ -178,7 +178,11 @@ swift test                       # run the tests
 
 - **Two variants.** "KeeMac Dev" is the development build. It has its own settings, Touch ID keychain item, SSH agent socket (`~/.keemac-dev/agent.sock`) and browser socket. It never edits `~/.ssh/config` or repoints browser manifests on its own, so it runs next to the installed KeeMac.
 - **Signing.** With an Apple Development (or Developer ID Application) certificate in the keychain and a provisioning profile for the bundle ID in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`, `build_app.sh` signs with it: keychain entitlement, embedded profile, hardened runtime. Touch ID items then live in the data protection keychain. Without them it signs ad-hoc and Touch ID falls back to the login keychain.
-- **Settings.** The unbundled debug binary keeps its settings in the `KeeMacApp` defaults domain. The first launch of `tech.keemac.app` copies the settings of the earlier `com.keemac.local` builds; Touch ID has to be turned on again per database.
+- **Settings.** The unbundled debug binary keeps its settings in the `KeeMacApp` defaults domain. The first launch of `tech.keemac.app` copies the settings of the earlier `com.keemac.local` builds. Database bookmarks are re-created for the new app.
+- **After switching to a signed build:**
+  - Touch ID has to be turned on again per database, and Accessibility (Auto-Type) granted again.
+  - The old builds' Touch ID items stay in the login keychain until you delete the `com.keemac.master-password.biometric` entries in Keychain Access.
+- **Browser manifest.** Both variants install the same manifest (`org.keepassxc.keepassxc_browser.json`), so the browser talks to whichever one installed it last; the installed KeeMac points it back at itself when it starts.
 
 ### Touch ID
 

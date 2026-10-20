@@ -25,6 +25,8 @@ public enum AppVariant {
 public enum LegacySettingsMigration {
     public static let legacyDomain = "com.keemac.local"
     static let migratedKey = "keemac.migration.legacySettings.v1"
+    /// The old build's Touch ID item isn't readable by the new app, so its marker would only lead to a failed prompt.
+    static let notMigrated: Set<String> = ["keemac.selection.biometric.vault.path"]
 
     /// Call first thing at launch, before anything reads the settings.
     /// "KeeMac Dev" and the UI test build start with their own settings.
@@ -45,7 +47,7 @@ public enum LegacySettingsMigration {
               let legacy = defaults.persistentDomain(forName: legacyDomain) else {
             return
         }
-        for (key, value) in legacy where key.hasPrefix("keemac.") {
+        for (key, value) in legacy where key.hasPrefix("keemac.") && !notMigrated.contains(key) {
             defaults.set(value, forKey: key)
         }
     }

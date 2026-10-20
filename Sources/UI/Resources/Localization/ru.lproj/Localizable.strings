@@ -1058,7 +1058,7 @@
 "Import Keys from ~/.ssh…" = "Импортировать ключи из ~/.ssh…";
 "Recent requests" = "Последние запросы";
 "Off" = "Выключен";
-"Another SSH agent already uses ~/.keemac/agent.sock" = "~/.keemac/agent.sock уже занят другим SSH-агентом";
+"Another SSH agent already uses %@" = "%@ уже занят другим SSH-агентом";
 "Database locked — keys appear after unlocking" = "База заблокирована — ключи появятся после разблокировки";
 "SSH Key" = "SSH-ключ";
 "Defaults to the key’s comment" = "По умолчанию — комментарий ключа";

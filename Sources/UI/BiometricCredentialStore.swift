@@ -50,8 +50,10 @@ enum BiometricCredentialError: LocalizedError {
 
 @MainActor
 final class KeychainBiometricCredentialStore: BiometricCredentialStoring {
-    private static let service = "com.keemac.master-password.biometric"
-    private static let responseService = "com.keemac.hardware-key-response.biometric"
+    /// "KeeMac Dev" keeps its own items, so an ad-hoc dev build never replaces the installed app's.
+    private static let suffix = AppVariant.isDevelopment ? ".dev" : ""
+    private static let service = "com.keemac.master-password.biometric" + suffix
+    private static let responseService = "com.keemac.hardware-key-response.biometric" + suffix
     /// The context Touch ID was evaluated with by the last `loadMasterPassword`.
     private var authenticatedContext: LAContext?
 

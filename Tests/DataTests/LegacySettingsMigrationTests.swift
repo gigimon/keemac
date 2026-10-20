@@ -10,7 +10,12 @@ final class LegacySettingsMigrationTests: XCTestCase {
         legacyName = "KeeMacLegacyTests.\(UUID().uuidString)"
         appName = "KeeMacAppTests.\(UUID().uuidString)"
         UserDefaults().setPersistentDomain(
-            ["keemac.settings.browserIntegration.enabled": true, "keemac.entries.favorites.v1": Data([1, 2]), "NSWindow Frame": "1 2 3 4"],
+            [
+                "keemac.settings.browserIntegration.enabled": true,
+                "keemac.entries.favorites.v1": Data([1, 2]),
+                "keemac.selection.biometric.vault.path": "/tmp/Vault.kdbx",
+                "NSWindow Frame": "1 2 3 4"
+            ],
             forName: legacyName
         )
     }
@@ -30,6 +35,7 @@ final class LegacySettingsMigrationTests: XCTestCase {
         XCTAssertTrue(target.bool(forKey: "keemac.settings.browserIntegration.enabled"))
         XCTAssertEqual(target.data(forKey: "keemac.entries.favorites.v1"), Data([1, 2]))
         XCTAssertNil(target.object(forKey: "NSWindow Frame"), "only KeeMac's own keys")
+        XCTAssertNil(target.object(forKey: "keemac.selection.biometric.vault.path"), "the old Touch ID item isn't readable here")
 
         target.set(false, forKey: "keemac.settings.browserIntegration.enabled")
         LegacySettingsMigration.migrateIfNeeded(into: target, bundleIdentifier: appName, legacyDomain: legacyName)
@@ -52,5 +58,14 @@ final class LegacySettingsMigrationTests: XCTestCase {
             XCTAssertNil(target.object(forKey: "keemac.settings.browserIntegration.enabled"), suffix)
             UserDefaults().removePersistentDomain(forName: name)
         }
+    }
+
+    func testBookmarkWithoutSecurityScopeStillResolves() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).kdbx")
+        try Data("x".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let plain = try file.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+        let resolved = try XCTUnwrap(AppViewModel.resolveBookmark(plain))
+        XCTAssertEqual(resolved.url.standardizedFileURL.path, file.standardizedFileURL.path)
     }
 }
