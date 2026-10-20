@@ -317,11 +317,17 @@ $GET_TASK_ALLOW
 ENTITLEMENTS_PLIST
   cp "$PROFILE" "$APP_DIR/Contents/embedded.provisionprofile"
   echo "Signing with $IDENTITY ($(security find-identity -v -p codesigning | awk -v h="$IDENTITY" -F '"' 'index($1, h) { print $2; exit }')) and $(basename "$PROFILE")"
+  # Developer ID builds get Apple's secure timestamp (notarization requires it, and it keeps the
+  # signature valid after the certificate expires); development builds skip the network round trip.
+  TIMESTAMP="--timestamp=none"
+  if security find-identity -v -p codesigning | grep "$IDENTITY" | grep -q '"Developer ID Application:'; then
+    TIMESTAMP="--timestamp"
+  fi
   for framework in "$APP_DIR"/Contents/lib/*.framework; do
-    codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$framework"
+    codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$framework"
   done
-  codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$APP_DIR/Contents/MacOS/keemac-proxy"
-  codesign --force --options runtime --timestamp=none --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP_DIR"
+  codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$APP_DIR/Contents/MacOS/keemac-proxy"
+  codesign --force --options runtime "$TIMESTAMP" --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP_DIR"
 else
   if [[ "$VARIANT" != "uitests" ]]; then
     echo "warning: no signing certificate or provisioning profile for $BUNDLE_IDENTIFIER; signing ad-hoc (Touch ID falls back to the legacy keychain)" >&2
