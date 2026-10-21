@@ -164,52 +164,16 @@ Not covered: a master key changed on another device, clocks that disagree betwee
 └── scripts
 ```
 
-## Build and run
-
-Requirements: macOS 15 or newer, Xcode 16+ or the Command Line Tools with Swift 6.
-
-```bash
-swift build                      # debug build
-swift run KeeMacApp              # run the app
-swift test                       # run the tests
-./scripts/build_dev.sh           # 1. KeeMac Dev (tech.keemac.dev) in .build/dist; --install puts it in ~/Applications
-./scripts/build_local.sh         # 2. KeeMac (tech.keemac.app), Developer ID signed, installed to ~/Applications
-./scripts/build_notarized.sh     # 3. KeeMac notarized for the website: .build/release/KeeMac-<version>-macOS.zip
-```
-
-The three scripts wrap `build_app.sh` (`--release`, `--install`, `--debug`, `--ui-testing`) and `make_release_archive.sh` (`--notarize`, `--staple`).
-
-- **Notarization** needs an App Store Connect API key: `KEEMAC_NOTARY_KEY_ID`, `KEEMAC_NOTARY_ISSUER`, `KEEMAC_NOTARY_KEY` (path to the `.p8`), set in the environment or in `~/.appstoreconnect/keemac-notary.env`.
-- If Apple takes longer than 30 minutes, the script prints the submission ID; once it shows Accepted, `build_notarized.sh --staple` finishes without rebuilding.
-
-- **Two variants.** "KeeMac Dev" is the development build. It has its own settings, Touch ID keychain item, SSH agent socket (`~/.keemac-dev/agent.sock`) and browser socket. It never edits `~/.ssh/config` or repoints browser manifests on its own, so it runs next to the installed KeeMac.
-- **Signing.** With an Apple Development (or Developer ID Application) certificate in the keychain and a provisioning profile for the bundle ID in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`, `build_app.sh` signs with it: keychain entitlement, embedded profile, hardened runtime. Touch ID items then live in the data protection keychain. Without them it signs ad-hoc and Touch ID falls back to the login keychain.
-- **Settings.** The unbundled debug binary keeps its settings in the `KeeMacApp` defaults domain. The first launch of `tech.keemac.app` copies the settings of the earlier `com.keemac.local` builds. Database bookmarks are re-created for the new app.
-- **After switching to a signed build:**
-  - Touch ID has to be turned on again per database, and Accessibility (Auto-Type) granted again.
-  - The old builds' Touch ID items stay in the login keychain until you delete the `com.keemac.master-password.biometric` entries in Keychain Access.
-- **Browser manifest.** Both variants install the same manifest (`org.keepassxc.keepassxc_browser.json`), so the browser talks to whichever one installed it last; the installed KeeMac points it back at itself when it starts.
-
-### Touch ID
-
-- Touch ID is enabled per database in Settings → Security.
-- The first unlock uses the password and/or key file; after that KeeMac stores the password in the Keychain for biometric unlock.
-- If Touch ID is unavailable in your run context, run KeeMac as a signed app bundle for stable Keychain and biometric behavior.
-
 ## CI and releases
 
-- `.github/workflows/ci.yml` runs on pushes to `main`, `master` and `codex/**` and on pull requests: `swift test`, a packaged `.app`, and a ZIP with a SHA-256 checksum as workflow artifacts.
-- `.github/workflows/release.yml` runs on `vX.Y.Z` tags (or manually with an existing tag): it checks the tag, runs `swift test` and the UI tests, then builds `KeeMac.app` (`tech.keemac.app`) signed with Developer ID, notarizes and staples it, and publishes a GitHub Release with the ZIP and checksum. It needs these repository secrets:
-  - `KEEMAC_DEVELOPER_ID_P12` — the Developer ID Application certificate with its private key, exported as `.p12`, base64 (`base64 -i cert.p12 | pbcopy`), and `KEEMAC_DEVELOPER_ID_P12_PASSWORD`;
-  - `KEEMAC_PROVISIONING_PROFILE` — the Developer ID provisioning profile for `tech.keemac.app`, base64;
-  - `KEEMAC_NOTARY_KEY` — the App Store Connect API key `.p8`, base64, with `KEEMAC_NOTARY_KEY_ID` and `KEEMAC_NOTARY_ISSUER`.
+- `.github/workflows/ci.yml` runs on pushes to `main`, `master` and `codex/**` and on pull requests: `swift test`, then "KeeMac Dev" (`tech.keemac.dev`, ad-hoc signed) packed as a ZIP with a SHA-256 checksum in the workflow artifacts.
+- `.github/workflows/release.yml` runs on `vX.Y.Z` tags (or manually with an existing tag): it checks the tag, runs `swift test` and the UI tests, then builds `KeeMac.app` (`tech.keemac.app`) signed with Developer ID, notarizes and staples it, and publishes a GitHub Release with the ZIP and checksum.
 
 Versions come from git (`scripts/resolve_version.sh`):
 
 - a build of a commit tagged `vX.Y.Z` is a release: version `X.Y.Z`;
 - any other build is a development build: its version is `X.Y.Z-N-g<hash>`, N commits after the last `vX.Y.Z` tag (just the short commit hash before the first tag; `-dirty` with uncommitted changes), shown as "Development build <version>" in KeeMac → About KeeMac;
-- the build number is the number of commits up to `HEAD`;
-- `APP_VERSION` and `BUILD_NUMBER` override both.
+- the build number is the number of commits up to `HEAD`.
 
 Build the release archive locally:
 

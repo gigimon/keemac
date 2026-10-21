@@ -48,17 +48,22 @@ jobs:
           fetch-depth: 0
 
       - name: Verify scripts are executable
-        run: chmod +x scripts/build_app.sh scripts/make_release_archive.sh
+        run: chmod +x scripts/build_app.sh
 
-      - name: Build packaged app archive
-        env:
-          BUNDLE_IDENTIFIER: com.keemac.ci
-        run: scripts/make_release_archive.sh
+      - name: Build KeeMac Dev archive
+        run: |
+          set -euo pipefail
+          scripts/build_app.sh --clean
+          source scripts/resolve_version.sh
+          mkdir -p .build/release
+          ARCHIVE=".build/release/KeeMac-Dev-$APP_VERSION-macOS.zip"
+          ditto -c -k --keepParent ".build/dist/KeeMac Dev.app" "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
 
       - name: Upload packaged app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: KeeMac-ci-build
+          name: KeeMac-Dev-ci-build
           path: |
             .build/release/*.zip
             .build/release/*.sha256
