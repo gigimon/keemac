@@ -174,14 +174,26 @@ jobs:
           spctl --assess --type execute -vv "$APP"
           xcrun stapler validate "$APP"
 
-      - name: Create release if needed
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          if ! gh release view "${{ needs.version.outputs.tag }}" >/dev/null 2>&1; then
-            gh release create "${{ needs.version.outputs.tag }}" \
-              --title "KeeMac ${{ needs.version.outputs.version }}" \
-              --generate-notes
+          set -euo pipefail
+          # The notes are the body of the annotated tag (after its "KeeMac X.Y.Z" subject line);
+          # a tag without a body gets GitHub's generated notes.
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          git tag -l --format='%(contents:body)' "$TAG" > "$NOTES"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if grep -q '[^[:space:]]' "$NOTES"; then
+              gh release edit "$TAG" --notes-file "$NOTES"
+            fi
+          elif grep -q '[^[:space:]]' "$NOTES"; then
+            gh release create "$TAG" --title "KeeMac $VERSION" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --title "KeeMac $VERSION" --generate-notes
           fi
 
       - name: Upload release assets

@@ -28,7 +28,7 @@ swift test                       # XCTest suite (DataTests)
   - `KeychainBiometricCredentialStore` uses the data protection keychain when the entitlement is there.
   - Developer ID signatures get Apple's timestamp. `make_release_archive.sh --notarize` submits with `notarytool` using the API key from `~/.appstoreconnect/keemac-notary.env`, checks the status, staples, and verifies with `spctl`. The wrappers `build_dev.sh` / `build_local.sh` / `build_notarized.sh` only pass flags.
 - `AppVariant` (bundle ID ending in `.dev`) gives "KeeMac Dev" its own SSH agent and browser sockets. `keemac-proxy` checks the same suffix. It also never writes `~/.ssh/config` and doesn't repair browser manifests automatically.
-- Versions come from git (`scripts/resolve_version.sh`, sourced by the build scripts): HEAD at a `vX.Y.Z` tag is a release build with version `X.Y.Z`, anything else uses the short commit hash; the build number is the commit count. `release.yml` runs unit and UI tests on `vX.Y.Z` tags before publishing.
+- Versions come from git (`scripts/resolve_version.sh`, sourced by the build scripts): HEAD at a `vX.Y.Z` tag is a release build with version `X.Y.Z`, anything else is `X.Y.Z-N-g<hash>` after the last tag (the short hash before the first one); the build number is the commit count. `release.yml` runs unit and UI tests on `vX.Y.Z` tags, then publishes the notarized build with the annotated tag's body as release notes. Releases are made with the local `/build-keemac` skill.
 
 ## UI tests
 
