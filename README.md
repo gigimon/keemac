@@ -164,36 +164,6 @@ Not covered: a master key changed on another device, clocks that disagree betwee
 └── scripts
 ```
 
-## CI and releases
-
-- `.github/workflows/ci.yml` runs on pushes to `main`, `master` and `codex/**` and on pull requests: `swift test`, then "KeeMac Dev" (`tech.keemac.dev`, ad-hoc signed) packed as a ZIP with a SHA-256 checksum in the workflow artifacts.
-- `.github/workflows/release.yml` runs on `vX.Y.Z` tags (or manually with an existing tag): it checks the tag, runs `swift test` and the UI tests, then builds `KeeMac.app` (`tech.keemac.app`) signed with Developer ID, notarizes and staples it, and publishes a GitHub Release with the ZIP and checksum.
-
-Versions come from git (`scripts/resolve_version.sh`):
-
-- a build of a commit tagged `vX.Y.Z` is a release: version `X.Y.Z`;
-- any other build is a development build: its version is `X.Y.Z-N-g<hash>`, N commits after the last `vX.Y.Z` tag (just the short commit hash before the first tag; `-dirty` with uncommitted changes), shown as "Development build <version>" in KeeMac → About KeeMac;
-- the build number is the number of commits up to `HEAD`.
-
-Build the release archive locally:
-
-```bash
-./scripts/make_release_archive.sh
-```
-
-It produces `.build/release/KeeMac-<version>-macOS.zip` and its `.sha256`. To publish a release:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-Run the UI tests locally (needs `brew install xcodegen`; don't touch the keyboard and mouse while they run):
-
-```bash
-./scripts/run_ui_tests.sh
-```
-
 ## Known limitations
 
 - macOS only.
