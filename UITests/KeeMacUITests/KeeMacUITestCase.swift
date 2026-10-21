@@ -113,9 +113,22 @@ class KeeMacUITestCase: XCTestCase {
 
     /// Replaces a field's text (new entries start with a generated password).
     func replaceText(of element: XCUIElement, with text: String) {
-        element.click()
+        focus(element)
         element.typeKey("a", modifierFlags: .command)
         element.typeText(text)
+    }
+
+    /// Clicks a text field until it has keyboard focus: on a slow runner the first click can land
+    /// while the editor is still settling, and typing into an unfocused field fails the whole test run.
+    func focus(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<3 {
+            element.click()
+            let focused = expectation(for: NSPredicate(format: "hasKeyboardFocus == true"), evaluatedWith: element)
+            if XCTWaiter.wait(for: [focused], timeout: 2) == .completed {
+                return
+            }
+        }
+        XCTFail("\(element) didn't get keyboard focus", file: file, line: line)
     }
 
     func selectEntry(_ title: String) {
