@@ -97,7 +97,7 @@ jobs:
   publish-release:
     needs: [version, unit-tests, ui-tests]
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
 
@@ -111,11 +111,68 @@ jobs:
       - name: Verify scripts are executable
         run: chmod +x scripts/build_app.sh scripts/make_release_archive.sh
 
-      - name: Build release archive
+      - name: Install signing certificate and provisioning profile
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.KEEMAC_DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.KEEMAC_DEVELOPER_ID_P12_PASSWORD }}
+          PROVISIONING_PROFILE: ${{ secrets.KEEMAC_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          for variable in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD PROVISIONING_PROFILE; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Secret KEEMAC_$variable is not set"
+              exit 1
+            fi
+          done
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$DEVELOPER_ID_P12_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          echo "$PROVISIONING_PROFILE" | base64 --decode > "$PROFILES_DIR/keemac-release.provisionprofile"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Install notary API key
+        env:
+          NOTARY_KEY: ${{ secrets.KEEMAC_NOTARY_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$NOTARY_KEY" ]]; then
+            echo "::error::Secret KEEMAC_NOTARY_KEY is not set"
+            exit 1
+          fi
+          echo "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary-key.p8"
+          echo "KEEMAC_NOTARY_KEY=$RUNNER_TEMP/notary-key.p8" >> "$GITHUB_ENV"
+
+      - name: Build, notarize and pack release archive
         env:
           APP_VERSION: ${{ needs.version.outputs.version }}
-          BUNDLE_IDENTIFIER: com.keemac.release
-        run: scripts/make_release_archive.sh
+          KEEMAC_NOTARY_KEY_ID: ${{ secrets.KEEMAC_NOTARY_KEY_ID }}
+          KEEMAC_NOTARY_ISSUER: ${{ secrets.KEEMAC_NOTARY_ISSUER }}
+        run: scripts/make_release_archive.sh --notarize
+
+      - name: Check the archive is a signed KeeMac
+        run: |
+          set -euo pipefail
+          CHECK_DIR="$RUNNER_TEMP/check"
+          mkdir -p "$CHECK_DIR"
+          ditto -x -k .build/release/*.zip "$CHECK_DIR"
+          APP="$CHECK_DIR/KeeMac.app"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist")"
+          if [[ "$BUNDLE_ID" != "tech.keemac.app" ]]; then
+            echo "::error::Bundle ID is $BUNDLE_ID, expected tech.keemac.app"
+            exit 1
+          fi
+          spctl --assess --type execute -vv "$APP"
+          xcrun stapler validate "$APP"
 
       - name: Create release if needed
         env:
@@ -135,3 +192,9 @@ jobs:
             .build/release/*.zip \
             .build/release/*.sha256 \
             --clobber
+
+      - name: Remove signing keychain and keys
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/notary-key.p8" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/keemac-release.provisionprofile"

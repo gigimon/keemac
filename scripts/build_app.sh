@@ -40,7 +40,7 @@ Environment overrides:
   BUNDLE_IDENTIFIER  CFBundleIdentifier (default: by variant)
   SIGN_IDENTITY      Certificate name or SHA-1 to sign with (default: found in the keychain)
   APP_VERSION        CFBundleShortVersionString (default: X.Y.Z when HEAD is at tag vX.Y.Z,
-                     otherwise the short commit hash)
+                     otherwise X.Y.Z-N-g<hash> after the last tag, or the short commit hash)
   BUILD_NUMBER       CFBundleVersion (default: number of commits up to HEAD)
 USAGE
 }

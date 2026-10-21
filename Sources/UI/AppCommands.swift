@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 public enum AppCommand {
     /// `userInfo` key of `undo` naming the database whose step to undo ("" for the main one).
@@ -22,4 +23,16 @@ public enum AppCommand {
     public static let vaultUnlockedUserInfoKey = "unlocked"
     public static let dockIconVisibilityChanged = Notification.Name("KeeMac.Command.DockIconVisibilityChanged")
     public static let dockIconVisibilityUserInfoKey = "showDockIcon"
+}
+
+/// Settings tab requested from outside the Settings window, such as KeeMac → About KeeMac.
+@MainActor
+@Observable
+public final class SettingsNavigation {
+    public static let shared = SettingsNavigation()
+
+    /// Set to show the About tab; SettingsView switches to it and clears the flag.
+    public var showsAbout = false
+
+    private init() {}
 }

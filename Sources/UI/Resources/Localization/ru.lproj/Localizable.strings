@@ -26,6 +26,7 @@
 "A copy may use a different master key. Open it with Vault → Merge Database… instead." = "Копия может быть защищена другим мастер-ключом. Откройте её командой «Объединить базу данных…».";
 "A one-line banner above the list after unlocking" = "Однострочный баннер над списком после разблокировки";
 "About" = "О программе";
+"About KeeMac" = "О программе KeeMac";
 "Access" = "Доступ";
 "Actual Size" = "Реальный размер";
 "Add Attachments" = "Добавить вложения";

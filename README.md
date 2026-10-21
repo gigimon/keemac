@@ -199,12 +199,15 @@ The three scripts wrap `build_app.sh` (`--release`, `--install`, `--debug`, `--u
 ## CI and releases
 
 - `.github/workflows/ci.yml` runs on pushes to `main`, `master` and `codex/**` and on pull requests: `swift test`, a packaged `.app`, and a ZIP with a SHA-256 checksum as workflow artifacts.
-- `.github/workflows/release.yml` runs on `vX.Y.Z` tags (or manually with an existing tag): it checks the tag, runs `swift test` and the UI tests, then builds the release ZIP and publishes a GitHub Release with the ZIP and checksum.
+- `.github/workflows/release.yml` runs on `vX.Y.Z` tags (or manually with an existing tag): it checks the tag, runs `swift test` and the UI tests, then builds `KeeMac.app` (`tech.keemac.app`) signed with Developer ID, notarizes and staples it, and publishes a GitHub Release with the ZIP and checksum. It needs these repository secrets:
+  - `KEEMAC_DEVELOPER_ID_P12` — the Developer ID Application certificate with its private key, exported as `.p12`, base64 (`base64 -i cert.p12 | pbcopy`), and `KEEMAC_DEVELOPER_ID_P12_PASSWORD`;
+  - `KEEMAC_PROVISIONING_PROFILE` — the Developer ID provisioning profile for `tech.keemac.app`, base64;
+  - `KEEMAC_NOTARY_KEY` — the App Store Connect API key `.p8`, base64, with `KEEMAC_NOTARY_KEY_ID` and `KEEMAC_NOTARY_ISSUER`.
 
 Versions come from git (`scripts/resolve_version.sh`):
 
 - a build of a commit tagged `vX.Y.Z` is a release: version `X.Y.Z`;
-- any other build is a development build: its version is the short commit hash (`-dirty` with uncommitted changes), shown as "Development build <hash>" in Settings → About;
+- any other build is a development build: its version is `X.Y.Z-N-g<hash>`, N commits after the last `vX.Y.Z` tag (just the short commit hash before the first tag; `-dirty` with uncommitted changes), shown as "Development build <version>" in KeeMac → About KeeMac;
 - the build number is the number of commits up to `HEAD`;
 - `APP_VERSION` and `BUILD_NUMBER` override both.
 

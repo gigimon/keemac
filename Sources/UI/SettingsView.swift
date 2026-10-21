@@ -19,6 +19,7 @@ public struct SettingsView: View {
     @State private var generator = PasswordGeneratorSettings.shared
     @State private var browser = BrowserIntegrationController.shared
     @State private var settings = AppSettingsStore.shared
+    @State private var navigation = SettingsNavigation.shared
     @State private var shortcutConflict = QuickAccessController.shared.shortcutConflict
     @State private var autoTypeShortcutConflict = AutoTypeController.shared.shortcutConflict
     @State private var accessibilityGranted = AccessibilityPermission.isGranted
@@ -106,6 +107,12 @@ public struct SettingsView: View {
             browser.refreshHostStates()
             sshConfigIsSetUp = SSHConfigSetup.isSetUp()
             accessibilityGranted = AccessibilityPermission.isGranted
+        }
+        .onChange(of: navigation.showsAbout, initial: true) {
+            if navigation.showsAbout {
+                selectedTab = .about
+                navigation.showsAbout = false
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Back from System Settings › Accessibility.

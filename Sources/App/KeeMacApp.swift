@@ -179,6 +179,10 @@ struct KeeMacApp: App {
             SettingsView(viewModel: viewModel)
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                AboutMenuButton()
+            }
+
             CommandGroup(replacing: .newItem) {}
 
             CommandGroup(replacing: .undoRedo) {
@@ -290,6 +294,19 @@ struct KeeMacApp: App {
         MainWindowController.shared.show()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             postCommand(command)
+        }
+    }
+}
+
+/// KeeMac → About KeeMac opens Settings → About: the version, licenses and source link live there.
+private struct AboutMenuButton: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button(L("About KeeMac")) {
+            SettingsNavigation.shared.showsAbout = true
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
         }
     }
 }
