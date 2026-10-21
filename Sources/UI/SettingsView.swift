@@ -43,6 +43,7 @@ public struct SettingsView: View {
             settingsPage {
                 generalGroups
             }
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("General"), systemImage: "slider.horizontal.3")
             }
@@ -51,6 +52,7 @@ public struct SettingsView: View {
             settingsPage {
                 securityGroups
             }
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("Security"), systemImage: "lock")
             }
@@ -59,6 +61,7 @@ public struct SettingsView: View {
             settingsPage {
                 shortcutGroups
             }
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("Shortcuts"), systemImage: "command")
             }
@@ -67,6 +70,7 @@ public struct SettingsView: View {
             settingsPage {
                 browserGroups
             }
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("Browser"), systemImage: "puzzlepiece.extension")
             }
@@ -75,6 +79,7 @@ public struct SettingsView: View {
             settingsPage {
                 autoTypeGroups
             }
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("Auto-Type"), systemImage: "keyboard")
             }
@@ -83,18 +88,16 @@ public struct SettingsView: View {
             settingsPage {
                 sshAgentGroups
             }
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("SSH Agent"), systemImage: "terminal")
             }
             .tag(Tab.sshAgent)
 
-            ScrollView {
-                settingsPage {
-                    AboutView()
-                }
+            settingsPage {
+                AboutView()
             }
-            .frame(height: 520)
-            .background(KM.unlockBackground)
+            .fitsScreenHeight()
             .tabItem {
                 Label(L("About"), systemImage: "info.circle")
             }
@@ -992,5 +995,29 @@ private struct ShortcutRecorder: View {
         isRecording = false
         QuickAccessController.shared.updateHotKey()
         AutoTypeController.shared.updateHotKey()
+    }
+}
+
+/// Scrolls a settings tab taller than `maximumHeight`, so the window fits small screens (1024×768
+/// included) whatever its position; shorter tabs keep their own height.
+private struct FitsScreenHeight: ViewModifier {
+    static let maximumHeight: CGFloat = 520
+
+    @State private var contentHeight: CGFloat?
+
+    func body(content: Content) -> some View {
+        ScrollView {
+            content
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: contentHeight.map { min($0, Self.maximumHeight) })
+        .background(KM.unlockBackground)
+    }
+}
+
+private extension View {
+    func fitsScreenHeight() -> some View {
+        modifier(FitsScreenHeight())
     }
 }

@@ -36,6 +36,8 @@ final class SettingsUITests: KeeMacUITestCase {
             openSettings(tab: "General")
             let segment = element("settings.layout.\(layout)")
             XCTAssertTrue(segment.waitForExistence(timeout: 5), "no \(layout) layout")
+            // On a small screen the General tab scrolls and the layout picker is below the fold.
+            scrollIntoView(segment, in: app.windows["General"].scrollViews.firstMatch)
             segment.click()
             closeSettings(tab: "General")
 

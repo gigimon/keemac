@@ -218,6 +218,18 @@ private final class SocketFrameReader: @unchecked Sendable {
         shutdown(descriptor, SHUT_RDWR)
     }
 
+    /// Sends one frame. `connect` returns before the server accepts, so a reply to it shows
+    /// the server holds the connection and broadcasts reach it.
+    func send(_ request: [String: Any]) throws {
+        var frame = Data()
+        let body = try JSONSerialization.data(withJSONObject: request)
+        var length = UInt32(body.count)
+        frame.append(Data(bytes: &length, count: 4))
+        frame.append(body)
+        let written = frame.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+        XCTAssertEqual(written, frame.count)
+    }
+
     /// The next frame as JSON, nil on timeout or when the server closed the connection.
     func next(timeout: Duration = .seconds(5)) async -> [String: Any]? {
         let data: Data? = await withCheckedContinuation { continuation in
@@ -679,6 +691,9 @@ final class BrowserIntegrationControllerTests: XCTestCase {
 
         let browser = try XCTUnwrap(SocketFrameReader(path: fixture.socketPath))
         defer { browser.close() }
+        try browser.send(["action": "change-public-keys"])
+        let accepted = await browser.next()
+        XCTAssertEqual(accepted?["action"] as? String, "change-public-keys", "the server answers once it has accepted the connection")
 
         await fixture.lock()
         let locked = await browser.next()

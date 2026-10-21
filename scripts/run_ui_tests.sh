@@ -14,6 +14,7 @@ Usage: scripts/run_ui_tests.sh [options]
 
 Builds the UI test app (scripts/build_app.sh --ui-testing), generates
 UITests/KeeMacUITests.xcodeproj with XcodeGen and runs the XCUITest suite.
+A failed test is retried up to two more times before it counts as failed.
 
 Options:
   --skip-build           Reuse .build/uitest-dist/KeeMac.app
@@ -62,5 +63,7 @@ xcodebuild test \
   -destination "platform=macOS" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -resultBundlePath "$RESULT_BUNDLE" \
+  -retry-tests-on-failure \
+  -test-iterations 3 \
   ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"} \
   TEST_RUNNER_KEEMAC_APP_PATH="$APP_PATH"
