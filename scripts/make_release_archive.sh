@@ -114,7 +114,8 @@ if [[ "$NOTARIZE" == "true" || "$STAPLE_ONLY" == "true" ]]; then
 fi
 
 ditto -c -k --keepParent "$APP_PATH" "$ARCHIVE_PATH"
-shasum -a 256 "$ARCHIVE_PATH" > "$CHECKSUM_PATH"
+# Just the file name, so `shasum -c` works next to the downloaded archive.
+(cd "$RELEASE_DIR" && shasum -a 256 "$(basename "$ARCHIVE_PATH")") > "$CHECKSUM_PATH"
 
 echo "Archive: $ARCHIVE_PATH"
 echo "Checksum: $CHECKSUM_PATH"
