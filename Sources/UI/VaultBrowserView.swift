@@ -200,6 +200,7 @@ public struct VaultBrowserView: View {
     @State private var unlockRequest: AdditionalUnlockRequest?
     @State private var transferFlow: TransferFlow?
     @State private var databaseInfoKey: String?
+    @State private var cache = VaultBrowserCache()
 
     public init(
         vault: LoadedVault,
@@ -338,7 +339,7 @@ public struct VaultBrowserView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: confirmRequest?.id)
-        .environment(\.fieldCompletions, FieldCompletions(entries: vault.entries))
+        .environment(\.fieldCompletions, fieldCompletions)
         .animation(.easeOut(duration: 0.2), value: showsDiskChangeBanner)
         .animation(.easeOut(duration: 0.2), value: showsExpiryBanner)
         .background(KM.windowBackground)
@@ -369,7 +370,7 @@ public struct VaultBrowserView: View {
                     }
                 }
             }
-            .environment(\.fieldCompletions, FieldCompletions(entries: vault.entries))
+            .environment(\.fieldCompletions, fieldCompletions)
         }
         .sheet(item: $groupEditorMode) { mode in
             let autoType = groupAutoType(for: mode)
@@ -455,7 +456,7 @@ public struct VaultBrowserView: View {
             ensureValidSelection()
         }
         // Moves, deletes and merges change the list without changing the entry count.
-        .onChange(of: filteredEntries.map(\.id)) { _, _ in
+        .onChange(of: entryList.ids) { _, _ in
             ensureValidSelection()
         }
         .onChange(of: selectedEntryID) { oldValue, newValue in
@@ -525,18 +526,34 @@ public struct VaultBrowserView: View {
 
     // MARK: - Report
 
+    /// Suggestions for the editors' fields.
+    private var fieldCompletions: FieldCompletions {
+        cache.value("fieldCompletions", vault: vault) {
+            FieldCompletions(entries: vault.entries)
+        }
+    }
+
     private var isShowingReport: Bool {
         currentLibrarySelection == .report && trimmedQuery.isEmpty
     }
 
     private var report: DatabaseReport {
-        DatabaseReport(
-            vault: mainVault,
-            rootPath: rootPath,
-            favoriteEntryIDs: favoriteEntryIDs,
-            expiringWithinDays: expiringWithinDays,
-            oldAfterDays: oldAfterDays
-        )
+        cache.value("report", vault: vault, key: ReportKey(favorites: favoriteEntryIDs, expiringWithinDays: expiringWithinDays, oldAfterDays: oldAfterDays, minute: VaultBrowserCache.currentMinute)) {
+            DatabaseReport(
+                vault: mainVault,
+                rootPath: rootPath,
+                favoriteEntryIDs: favoriteEntryIDs,
+                expiringWithinDays: expiringWithinDays,
+                oldAfterDays: oldAfterDays
+            )
+        }
+    }
+
+    private struct ReportKey: Equatable {
+        let favorites: Set<UUID>
+        let expiringWithinDays: Int
+        let oldAfterDays: Int
+        let minute: Date
     }
 
     private var reportView: some View {
@@ -639,7 +656,8 @@ public struct VaultBrowserView: View {
                 .frame(height: layout.hasFloatingSidebar ? 38 : 44)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
+                // Lazy, so a database with hundreds of expanded groups only builds the rows on screen.
+                LazyVStack(alignment: .leading, spacing: 1) {
                     libraryRows
                         .padding(.top, 4)
 
@@ -650,10 +668,11 @@ public struct VaultBrowserView: View {
                             }
                         }
 
-                    ForEach(groupTree) { node in
+                    let mainTransferTargets = transferTargets(excluding: nil)
+                    ForEach(visibleGroupRows) { row in
                         GroupTreeRowView(
-                            node: node,
-                            depth: 0,
+                            node: row.node,
+                            depth: row.depth,
                             expandedGroupPaths: $expandedGroupPaths,
                             currentSelection: currentLibrarySelection,
                             counts: groupCounts,
@@ -672,7 +691,7 @@ public struct VaultBrowserView: View {
                                     await performMoveGroup(path: sourcePath, toParentPath: parentPath)
                                 }
                             },
-                            transferTargets: transferTargets(excluding: nil),
+                            transferTargets: mainTransferTargets,
                             onTransferGroup: { path, target, isCopy in
                                 startTransfer(entryIDs: [], groupPath: path, to: target, isCopy: isCopy)
                             }
@@ -760,7 +779,7 @@ public struct VaultBrowserView: View {
             } isTargeted: { targeted in
                 allItemsIsDropTargeted = targeted
             }
-        libraryRow(.favorites, title: L("Favorites"), symbol: "star", count: live.filter { favoriteEntryIDs.contains($0.id) }.count)
+        libraryRow(.favorites, title: L("Favorites"), symbol: "star", count: favoriteEntryIDs.isEmpty ? 0 : live.filter { favoriteEntryIDs.contains($0.id) }.count)
         libraryRow(.recentlyViewed, title: L("Recently Viewed"), symbol: "eye", count: nil)
         libraryRow(.recentlyModified, title: L("Recently Modified"), symbol: "clock", count: nil)
         libraryRow(.trash, title: L("Trash"), symbol: "trash", count: mainTrashedEntries.count)
@@ -1025,7 +1044,9 @@ public struct VaultBrowserView: View {
     }
 
     private var expirySummary: ExpirySummary {
-        ExpirySummary(entries: mainVault.entries, warnDays: expiryWarnDays)
+        cache.value("expirySummary", vault: vault, key: [expiryWarnDays, Int(VaultBrowserCache.currentMinute.timeIntervalSinceReferenceDate)]) {
+            ExpirySummary(entries: mainVault.entries, warnDays: expiryWarnDays)
+        }
     }
 
     /// Red and orange counts on "Database Report" for expired and soon-to-expire passwords.
@@ -1756,25 +1777,36 @@ public struct VaultBrowserView: View {
 
     /// The main database's root group. Additional databases' paths start with their scope, never with it.
     private var rootPath: String {
-        vault.groups.first(where: { !$0.path.contains(".") && DatabaseScope.key(of: $0.path) == nil })?.path ?? ""
+        cache.value("rootPath", vault: vault) {
+            vault.groups.first(where: { !$0.path.contains(".") && DatabaseScope.key(of: $0.path) == nil })?.path ?? ""
+        }
     }
 
     private var browsableGroups: [VaultGroup] {
-        vault.groups.filter { !$0.isTrash && !$0.path.isEmpty && $0.path != rootPath && DatabaseScope.key(of: $0.path) == nil }
+        cache.value("browsableGroups", vault: vault) {
+            let rootPath = rootPath
+            return vault.groups.filter { !$0.isTrash && !$0.path.isEmpty && $0.path != rootPath && DatabaseScope.key(of: $0.path) == nil }
+        }
     }
 
     /// The main database's live entries: the library (All, Favorites, Recent), tags and the report use only these.
     private var liveEntries: [VaultEntry] {
-        vault.entries.filter { !$0.isTrashed && DatabaseScope.key(of: $0.groupPath) == nil }
+        cache.value("liveEntries", vault: vault) {
+            vault.entries.filter { !$0.isTrashed && DatabaseScope.key(of: $0.groupPath) == nil }
+        }
     }
 
     /// Live entries of every open database: search and group lists.
     private var allLiveEntries: [VaultEntry] {
-        vault.entries.filter { !$0.isTrashed }
+        cache.value("allLiveEntries", vault: vault) {
+            vault.entries.filter { !$0.isTrashed }
+        }
     }
 
     private var mainTrashedEntries: [VaultEntry] {
-        vault.entries.filter { $0.isTrashed && DatabaseScope.key(of: $0.groupPath) == nil }
+        cache.value("mainTrashedEntries", vault: vault) {
+            vault.entries.filter { $0.isTrashed && DatabaseScope.key(of: $0.groupPath) == nil }
+        }
     }
 
     /// The main database alone, for the report, expiry reminders and the breach check.
@@ -1782,11 +1814,13 @@ public struct VaultBrowserView: View {
         guard !additional.unlockedKeys.isEmpty else {
             return vault
         }
-        return LoadedVault(
-            summary: vault.summary,
-            groups: vault.groups.filter { DatabaseScope.key(of: $0.path) == nil },
-            entries: vault.entries.filter { DatabaseScope.key(of: $0.groupPath) == nil }
-        )
+        return cache.value("mainVault", vault: vault) {
+            LoadedVault(
+                summary: vault.summary,
+                groups: vault.groups.filter { DatabaseScope.key(of: $0.path) == nil },
+                entries: vault.entries.filter { DatabaseScope.key(of: $0.groupPath) == nil }
+            )
+        }
     }
 
     private var listTitle: String {
@@ -1835,22 +1869,42 @@ public struct VaultBrowserView: View {
     }
 
     private var availableTags: [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for entry in liveEntries {
-            for tag in entry.tags where seen.insert(tag.lowercased()).inserted {
-                result.append(tag)
-            }
-        }
-        return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        tagIndex.tags
     }
 
     private func tagCount(_ tag: String) -> Int {
-        let normalized = tag.lowercased()
-        return liveEntries.filter { $0.tags.contains { $0.lowercased() == normalized } }.count
+        tagIndex.counts[tag.lowercased()] ?? 0
+    }
+
+    /// Tags in display order, the first spelling of each, with entry counts by lowercased tag.
+    private var tagIndex: (tags: [String], counts: [String: Int]) {
+        cache.value("tagIndex", vault: vault) {
+            var counts: [String: Int] = [:]
+            var result: [String] = []
+            for entry in liveEntries {
+                var seenInEntry = Set<String>()
+                for tag in entry.tags {
+                    let normalized = tag.lowercased()
+                    guard seenInEntry.insert(normalized).inserted else {
+                        continue
+                    }
+                    if counts[normalized] == nil {
+                        result.append(tag)
+                    }
+                    counts[normalized, default: 0] += 1
+                }
+            }
+            return (result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, counts)
+        }
     }
 
     private var groupCounts: [String: Int] {
+        cache.value("groupCounts", vault: vault, key: includeSubgroupEntries) {
+            computeGroupCounts()
+        }
+    }
+
+    private func computeGroupCounts() -> [String: Int] {
         var direct: [String: Int] = [:]
         for entry in allLiveEntries {
             direct[entry.groupPath, default: 0] += 1
@@ -1870,9 +1924,12 @@ public struct VaultBrowserView: View {
     }
 
     private var groupOptions: [GroupOption] {
-        browsableGroups
-            .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-            .map { GroupOption(path: $0.path, title: $0.title, depth: GroupPathFormatter.depth(of: $0.path, rootPath: rootPath)) }
+        cache.value("groupOptions", vault: vault) {
+            let rootPath = rootPath
+            return browsableGroups
+                .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+                .map { GroupOption(path: $0.path, title: $0.title, depth: GroupPathFormatter.depth(of: $0.path, rootPath: rootPath)) }
+        }
     }
 
     /// The focused entry: the card, the keyboard cursor. Setting it selects that entry alone.
@@ -2130,13 +2187,65 @@ public struct VaultBrowserView: View {
     }
 
     private var selectedEntry: VaultEntry? {
+        let list = entryList
         guard let selectedEntryID else {
-            return filteredEntries.first
+            return list.entries.first
         }
-        return filteredEntries.first(where: { $0.id == selectedEntryID })
+        return list.indexByID[selectedEntryID].map { list.entries[$0] }
     }
 
     private var filteredEntries: [VaultEntry] {
+        entryList.entries
+    }
+
+    /// Everything the list shows depends on; the list is rebuilt only when one of these changes.
+    /// Inputs a list doesn't use are nil, so viewing an entry (which changes the recent list)
+    /// doesn't rebuild All Entries.
+    private struct EntryListKey: Equatable {
+        let selection: LibrarySelection
+        let query: String
+        let sortOrder: SortOrder
+        let includeSubgroupEntries: Bool
+        let favorites: Set<UUID>?
+        let recentViewed: [UUID]?
+        let externalChanges: [UUID: AppViewModel.ExternalChange]?
+        let expiringWithinDays: Int?
+        let minute: Date?
+    }
+
+    private struct EntryList {
+        let entries: [VaultEntry]
+        let ids: [UUID]
+        let indexByID: [UUID: Int]
+    }
+
+    private var entryList: EntryList {
+        let selection = currentLibrarySelection
+        let query = trimmedQuery
+        let isSearching = !query.isEmpty
+        let key = EntryListKey(
+            selection: selection,
+            query: query,
+            sortOrder: sortOrder,
+            includeSubgroupEntries: includeSubgroupEntries,
+            favorites: isSearching || selection == .favorites ? favoriteEntryIDs : nil,
+            recentViewed: !isSearching && selection == .recentlyViewed ? recentViewedEntryIDs : nil,
+            externalChanges: !isSearching && selection == .changedElsewhere ? externalChanges : nil,
+            expiringWithinDays: isSearching ? expiringWithinDays : nil,
+            minute: isSearching ? VaultBrowserCache.currentMinute : nil
+        )
+        return cache.value("entryList", vault: vault, key: key) {
+            let entries = computeFilteredEntries()
+            let ids = entries.map(\.id)
+            return EntryList(
+                entries: entries,
+                ids: ids,
+                indexByID: Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            )
+        }
+    }
+
+    private func computeFilteredEntries() -> [VaultEntry] {
         let search = VaultEntrySearch(trimmedQuery)
 
         if !search.isEmpty {
@@ -2204,6 +2313,37 @@ public struct VaultBrowserView: View {
     }
 
     private var groupTree: [GroupTreeNode] {
+        cache.value("groupTree", vault: vault) {
+            computeGroupTree()
+        }
+    }
+
+    fileprivate struct VisibleGroupRow: Identifiable {
+        let node: GroupTreeNode
+        let depth: Int
+
+        var id: String { node.path }
+    }
+
+    /// The main database's tree as the rows the sidebar shows: children follow their expanded parent.
+    private var visibleGroupRows: [VisibleGroupRow] {
+        cache.value("visibleGroupRows", vault: vault, key: expandedGroupPaths) {
+            Self.visibleRows(of: groupTree, expanded: expandedGroupPaths)
+        }
+    }
+
+    fileprivate static func visibleRows(of nodes: [GroupTreeNode], expanded: Set<String>, depth: Int = 0) -> [VisibleGroupRow] {
+        var rows: [VisibleGroupRow] = []
+        for node in nodes {
+            rows.append(VisibleGroupRow(node: node, depth: depth))
+            if expanded.contains(node.path), let children = node.children {
+                rows += visibleRows(of: children, expanded: expanded, depth: depth + 1)
+            }
+        }
+        return rows
+    }
+
+    private func computeGroupTree() -> [GroupTreeNode] {
         let groupIconsByPath = Dictionary(
             browsableGroups.map { ($0.path, ($0.iconPNGData, $0.iconID)) },
             uniquingKeysWith: { first, _ in first }
@@ -2733,30 +2873,9 @@ fileprivate struct GroupTreeRowView: View {
         expandedGroupPaths.contains(node.path)
     }
 
+    /// One row; children are separate rows of `VaultBrowserView.visibleRows(of:expanded:)`.
     var body: some View {
-        Group {
-            rowContent
-            if isExpanded, let children = node.children {
-                ForEach(children) { child in
-                    GroupTreeRowView(
-                        node: child,
-                        depth: depth + 1,
-                        expandedGroupPaths: $expandedGroupPaths,
-                        currentSelection: currentSelection,
-                        counts: counts,
-                        onSelect: onSelect,
-                        onCreateEntry: onCreateEntry,
-                        onCreateSubgroup: onCreateSubgroup,
-                        onEditGroup: onEditGroup,
-                        onDeleteGroup: onDeleteGroup,
-                        onMoveEntries: onMoveEntries,
-                        onMoveGroup: onMoveGroup,
-                        transferTargets: transferTargets,
-                        onTransferGroup: onTransferGroup
-                    )
-                }
-            }
-        }
+        rowContent
     }
 
     private var rowContent: some View {
@@ -3167,10 +3286,11 @@ extension VaultBrowserView {
                     }
                 )
                 if database.state == .unlocked, expandedDatabases.contains(database.id) {
-                    ForEach(groupTree(forDatabase: database.id)) { node in
+                    let databaseTransferTargets = transferTargets(excluding: database.id)
+                    ForEach(Self.visibleRows(of: groupTree(forDatabase: database.id), expanded: expandedGroupPaths)) { row in
                         GroupTreeRowView(
-                            node: node,
-                            depth: 0,
+                            node: row.node,
+                            depth: row.depth,
                             expandedGroupPaths: $expandedGroupPaths,
                             currentSelection: currentLibrarySelection,
                             counts: groupCounts,
@@ -3181,7 +3301,7 @@ extension VaultBrowserView {
                             onDeleteGroup: confirmDeleteGroup,
                             onMoveEntries: { ids, path in Task { await performMoveEntries(ids, toGroupPath: path) } },
                             onMoveGroup: { source, parent in Task { await performMoveGroup(path: source, toParentPath: parent) } },
-                            transferTargets: transferTargets(excluding: database.id),
+                            transferTargets: databaseTransferTargets,
                             onTransferGroup: { path, target, isCopy in
                                 startTransfer(entryIDs: [], groupPath: path, to: target, isCopy: isCopy)
                             }
@@ -3466,5 +3586,49 @@ fileprivate struct AdditionalDatabaseHeaderRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Results of whole-database passes kept between renders. Any state change (a click, an arrow key,
+/// marking an entry viewed) runs the browser's body again, and with thousands of entries filtering,
+/// sorting and counting them on every run made navigation lag.
+///
+/// Each value is kept with the database it was computed from and its own key; it is computed again
+/// when either changes. Comparing the database is cheap while its arrays are the same buffers.
+@MainActor
+fileprivate final class VaultBrowserCache {
+    private var vault: LoadedVault?
+    private var generation = 0
+    private var values: [String: (generation: Int, key: Any, value: Any)] = [:]
+
+    /// The current minute, for values that depend on the time (expiry): they are computed again
+    /// at most once a minute, so an entry that expires shows up as expired on the next render.
+    static var currentMinute: Date {
+        Date(timeIntervalSinceReferenceDate: (Date().timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
+    }
+
+    func value<Value>(_ name: String, vault: LoadedVault, compute: () -> Value) -> Value {
+        value(name, vault: vault, key: true, compute: compute)
+    }
+
+    func value<Key: Equatable, Value>(_ name: String, vault: LoadedVault, key: Key, compute: () -> Value) -> Value {
+        sync(vault)
+        if let cached = values[name], cached.generation == generation,
+           let cachedKey = cached.key as? Key, cachedKey == key,
+           let value = cached.value as? Value {
+            return value
+        }
+        let value = compute()
+        values[name] = (generation, key, value)
+        return value
+    }
+
+    private func sync(_ vault: LoadedVault) {
+        if self.vault != vault {
+            generation += 1
+            values.removeAll(keepingCapacity: true)
+        }
+        // Keep the latest copy even when equal, so the next comparison takes the same-buffer fast path.
+        self.vault = vault
     }
 }
