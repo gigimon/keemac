@@ -47,6 +47,7 @@ final class AutoTypeUITests: KeeMacUITestCase {
         XCTAssertTrue(element("autoType.target").waitForExistence(timeout: 5), "Quick Access opens in Auto-Type mode")
         XCTAssertTrue(element("autoType.empty").exists, "nothing matches the window")
         let search = element("autoType.search")
+        focus(search)
         search.typeText("Mail")
         XCTAssertTrue(element("autoType.entry.Mail").waitForExistence(timeout: 5))
         search.typeText("\r")
@@ -87,7 +88,7 @@ final class AutoTypeUITests: KeeMacUITestCase {
         element("editor.autoType.addAssociation").click()
         let pattern = element("editor.autoType.association.0.title")
         XCTAssertTrue(pattern.waitForExistence(timeout: 5))
-        pattern.click()
+        focus(pattern)
         pattern.typeText("Corporate*")
         element("editor.save").click()
 

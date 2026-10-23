@@ -93,7 +93,7 @@ class KeeMacUITestCase: XCTestCase {
     func unlock(with password: String) {
         let field = element("unlock.password")
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no unlock screen")
-        field.click()
+        focus(field)
         field.typeText(password)
         field.typeText("\r")
     }
